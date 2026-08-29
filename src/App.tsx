@@ -10,6 +10,15 @@ import type { CustomerProfile } from './mocks/customerData'
 import type { UserRole } from './types/auth'
 import { deviceCatalog, deviceCategories, type CatalogDevice, type DeviceCategory } from './mocks/deviceCatalog'
 import { customerNotifications, type NotificationType } from './mocks/notificationData'
+import type { TechnicianProfile } from './mocks/technicianData'
+import { technicianLanguages, technicianRadiusOptions, technicianSpecializations, technicianWorkingDays, specializationSkills } from './mocks/technicianSkills'
+import { updateTechnicianProfile } from './api/technicianApi'
+import { useMockStore } from './services/mockStore'
+import { AdminPortal } from './components/admin/AdminPortal'
+import { TechnicianDashboard } from './components/technician/TechnicianDashboard'
+import { TechnicianJobsList } from './components/technician/TechnicianJobsList'
+import { TechnicianJobDetails } from './components/technician/TechnicianJobDetails'
+import { TechnicianSettingsPage } from './components/technician/TechnicianSettingsPage'
 import './App.css'
 
 const roles: Record<UserRole, { label: string; title: string; description: string; icon: typeof UserRound }> = {
@@ -18,11 +27,11 @@ const roles: Record<UserRole, { label: string; title: string; description: strin
   admin: { label: 'Admin', title: 'Admin Portal', description: 'Manage users, technician verification, and platform operations.', icon: ShieldCheck },
 }
 
-function App() { return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/admin/login" element={<Login />} /><Route path="/register/:role" element={<Registration />} /><Route path="/verify/:role" element={<StatusPage />} /><Route path="/technician/verification" element={<StatusPage />} /><Route path="/customer/*" element={<CustomerPortal />} /><Route path="/forgot-password" element={<UtilityPage />} /><Route path="/reset-password" element={<UtilityPage reset />} /><Route path="/technician/dashboard" element={<SimpleDestination title="Technician dashboard ready" />} /><Route path="/electrician/dashboard" element={<SimpleDestination title="Technician dashboard ready" />} /><Route path="/admin/dashboard" element={<SimpleDestination title="Admin dashboard ready" />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter> }
+function App() { return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/admin/login" element={<Login />} /><Route path="/register/:role" element={<Registration />} /><Route path="/verify/:role" element={<StatusPage />} /><Route path="/technician/verification" element={<StatusPage />} /><Route path="/customer/*" element={<CustomerPortal />} /><Route path="/forgot-password" element={<UtilityPage />} /><Route path="/reset-password" element={<UtilityPage reset />} /><Route path="/technician/*" element={<TechnicianPortal />} /><Route path="/admin/*" element={<AdminPortal />} /><Route path="/electrician/dashboard" element={<Navigate to="/technician/dashboard" replace />} /><Route path="/admin/dashboard" element={<Navigate to="/admin" replace />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter> }
 
 function PublicShell({ children, back = false }: { children: ReactNode; back?: boolean }) { return <div className="portal"><header className="topbar"><Link className="brand" to="/login"><span className="brand-mark"><Sparkles size={18} /></span><span><strong>SmartAssist AI</strong><small>Smart Home Support Platform</small></span></Link>{back ? <Link className="back-link" to="/login"><ChevronLeft size={16} /> Back to login</Link> : <button className="support-link" type="button"><Headphones size={16} /> Help / Support</button>}</header>{children}<footer className="page-footer">2026 SmartAssist AI <span>•</span> Support for every connected home</footer></div> }
 
-function Login() { const location = useLocation(); const navigate = useNavigate(); const [role, setRole] = useState<UserRole>(location.pathname.startsWith('/admin') ? 'admin' : 'customer'); const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const copy = roles[role]; const submit = async (event: FormEvent) => { event.preventDefault(); if (!identifier || !password) return setMessage('Enter your email or mobile number and password.'); setBusy(true); const result = await login(role, identifier, password); setBusy(false); navigate(result.role === 'electrician' ? '/technician/verification' : `/${result.role}/dashboard`) }; return <PublicShell><main className="auth-layout"><section className="intro-panel"><span className="eyebrow"><span className="pulse-dot" /> SMART HOME SUPPORT</span><h1>Diagnose smarter.<br /><em>Get help faster.</em></h1><p>One calm place to troubleshoot devices, connect with trusted technicians, and keep your home running beautifully.</p></section><section className="auth-card"><div className="card-heading"><span className="role-icon"><copy.icon size={21} /></span><div><h2>{copy.title}</h2><p>{copy.description}</p></div></div><div className="role-control" role="tablist" aria-label="Login as">{(['customer', 'electrician', 'admin'] as UserRole[]).map((item) => <button key={item} type="button" role="tab" aria-selected={role === item} className={role === item ? 'selected' : ''} onClick={() => { setRole(item); navigate(item === 'admin' ? '/admin/login' : '/login') }}>{roles[item].label}</button>)}</div><form className="auth-form" onSubmit={submit}><Field label="Email or Mobile Number" value={identifier} onChange={setIdentifier} placeholder="you@example.com" /><div className="field"><label htmlFor="login-password">Password</label><div className="password-wrap"><input id="login-password" type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button className="icon-button" type="button" aria-label={show ? 'Hide password' : 'Show password'} onClick={() => setShow(!show)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>{message && <p className="form-message" role="alert">{message}</p>}<div className="form-actions"><Link to="/forgot-password">Forgot password?</Link></div><button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Login'} {!busy && <ArrowRight size={17} />}</button></form>{role === 'admin' ? <div className="admin-note"><LockKeyhole size={16} /> Authorized administrators only. No public registration.</div> : <div className="register-prompt"><span>{role === 'customer' ? "Don't have an account?" : 'New to SmartAssist?'}</span><Link to={`/register/${role === 'electrician' ? 'technician' : role}`}>{role === 'customer' ? 'Create Customer Account' : 'Register as Technician'}</Link></div>}</section></main></PublicShell> }
+function Login() { const location = useLocation(); const navigate = useNavigate(); const [role, setRole] = useState<UserRole>(location.pathname.startsWith('/admin') ? 'admin' : 'customer'); const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const copy = roles[role]; const submit = async (event: FormEvent) => { event.preventDefault(); if (!identifier || !password) return setMessage('Enter your email or mobile number and password.'); setBusy(true); const result = await login(role, identifier, password); setBusy(false); navigate(result.role === 'electrician' ? '/technician/dashboard' : `/${result.role}/dashboard`) }; return <PublicShell><main className="auth-layout"><section className="intro-panel"><span className="eyebrow"><span className="pulse-dot" /> SMART HOME SUPPORT</span><h1>Diagnose smarter.<br /><em>Get help faster.</em></h1><p>One calm place to troubleshoot devices, connect with trusted technicians, and keep your home running beautifully.</p></section><section className="auth-card"><div className="card-heading"><span className="role-icon"><copy.icon size={21} /></span><div><h2>{copy.title}</h2><p>{copy.description}</p></div></div><div className="role-control" role="tablist" aria-label="Login as">{(['customer', 'electrician', 'admin'] as UserRole[]).map((item) => <button key={item} type="button" role="tab" aria-selected={role === item} className={role === item ? 'selected' : ''} onClick={() => { setRole(item); navigate(item === 'admin' ? '/admin/login' : '/login') }}>{roles[item].label}</button>)}</div><form className="auth-form" onSubmit={submit}><Field label="Email or Mobile Number" value={identifier} onChange={setIdentifier} placeholder="you@example.com" /><div className="field"><label htmlFor="login-password">Password</label><div className="password-wrap"><input id="login-password" type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button className="icon-button" type="button" aria-label={show ? 'Hide password' : 'Show password'} onClick={() => setShow(!show)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>{message && <p className="form-message" role="alert">{message}</p>}<div className="form-actions"><Link to="/forgot-password">Forgot password?</Link></div><button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Login'} {!busy && <ArrowRight size={17} />}</button></form>{role === 'admin' ? <div className="admin-note"><LockKeyhole size={16} /> Authorized administrators only. No public registration.</div> : <div className="register-prompt"><span>{role === 'customer' ? "Don't have an account?" : 'New to SmartAssist?'}</span><Link to={`/register/${role === 'electrician' ? 'technician' : role}`}>{role === 'customer' ? 'Create Customer Account' : 'Register as Technician'}</Link></div>}</section></main></PublicShell> }
 
 function Field({ label, value, onChange, placeholder, type = 'text', required = false }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string; required?: boolean }) { const id = label.toLowerCase().replaceAll(' ', '-'); return <div className="field"><label htmlFor={id}>{label}{required ? ' *' : ''}</label><input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required={required} /></div> }
 
@@ -98,5 +107,414 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
 function SelectRow({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) { return <div className="settings-row"><span><strong>{label}</strong></span><select value={value} aria-label={label} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select></div> }
 function StatusPage() { const technician = window.location.pathname.includes('technician'); return <PublicShell><main className="status-layout"><section className="status-card"><div className="success-mark"><Check size={28} /></div><span className="eyebrow">APPLICATION CREATED</span><h1>{technician ? 'Your technician application is created.' : 'Account created successfully.'}</h1><p>{technician ? 'Your profile is ready for the next project phase.' : 'Welcome to SmartAssist AI. Your account is ready.'}</p><Link className="primary-button" to={technician ? '/technician/dashboard' : '/customer/dashboard'}>{technician ? 'Go to Technician Dashboard' : 'Go to Customer Dashboard'} <ArrowRight size={17} /></Link></section></main></PublicShell> }
 function UtilityPage({ reset = false }: { reset?: boolean }) { return <PublicShell back><main className="status-layout"><section className="status-card"><div className="role-icon"><LockKeyhole size={21} /></div><h1>{reset ? 'Create a new password' : 'Forgot password?'}</h1><p>{reset ? 'Choose a new password for your account.' : "If an account exists, we'll send reset instructions."}</p><form className="auth-form">{reset ? <><Field label="New Password" value="" onChange={() => undefined} placeholder="At least 8 characters" type="password" /><Field label="Confirm Password" value="" onChange={() => undefined} placeholder="Repeat your password" type="password" /></> : <Field label="Email or Mobile Number" value="" onChange={() => undefined} placeholder="you@example.com" />}<button className="primary-button">{reset ? 'Reset Password' : 'Send Reset Code'} <ArrowRight size={17} /></button></form><Link className="center-link" to="/login">Return to login</Link></section></main></PublicShell> }
-function SimpleDestination({ title }: { title: string }) { return <PublicShell><main className="status-layout"><section className="status-card"><div className="role-icon"><Sparkles size={21} /></div><h1>{title}</h1><p>This destination is ready for the next implementation phase.</p><Link className="secondary-button" to="/login">Return to login</Link></section></main></PublicShell> }
+
+function TechnicianPortal() {
+  return (
+    <TechnicianShell>
+      <Routes>
+        <Route index element={<Navigate to="dashboard" replace />} />
+        <Route path="dashboard" element={<TechnicianDashboard />} />
+        <Route path="jobs" element={<TechnicianJobsList />} />
+        <Route path="jobs/:id" element={<TechnicianJobDetails />} />
+        <Route path="profile" element={<TechnicianProfilePage />} />
+        <Route path="settings" element={<TechnicianSettingsPage />} />
+        <Route path="*" element={<Navigate to="dashboard" replace />} />
+      </Routes>
+    </TechnicianShell>
+  )
+}
+
+function TechnicianShell({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const state = useMockStore()
+  const profile = state.technicianProfile
+  const pendingJobsCount = state.tickets.filter(
+    (t) => t.assignedTechnicianId === 'TECH-MK-01' && t.status !== 'COMPLETED'
+  ).length
+
+  return (
+    <div className="technician-app">
+      <aside className="technician-sidebar">
+        <div className="technician-brand">
+          <span className="brand-mark">
+            <Sparkles size={17} />
+          </span>
+          <span>
+            <strong>SmartHome</strong>
+            <small>Technician Portal</small>
+          </span>
+        </div>
+        <nav aria-label="Technician navigation">
+          <Link
+            className={location.pathname === '/technician/dashboard' ? 'technician-nav active' : 'technician-nav'}
+            to="/technician/dashboard"
+          >
+            <Home size={18} />
+            Dashboard
+          </Link>
+          <Link
+            className={location.pathname.startsWith('/technician/jobs') ? 'technician-nav active' : 'technician-nav'}
+            to="/technician/jobs"
+          >
+            <Ticket size={18} />
+            All Jobs
+            {pendingJobsCount > 0 && <span className="nav-count">{pendingJobsCount}</span>}
+          </Link>
+        </nav>
+        <div className="sidebar-divider" />
+        <Link
+          className={location.pathname.startsWith('/technician/profile') ? 'technician-nav active' : 'technician-nav'}
+          to="/technician/profile"
+        >
+          <UserRound size={18} />
+          Profile
+        </Link>
+        <Link
+          className={location.pathname.startsWith('/technician/settings') ? 'technician-nav active' : 'technician-nav'}
+          to="/technician/settings"
+        >
+          <Settings size={18} />
+          Settings
+        </Link>
+        <Link className="technician-logout" to="/login">
+          <LogOut size={16} />
+          Logout
+        </Link>
+      </aside>
+      <main className="technician-main">
+        <header className="technician-header">
+          <span className="header-kicker">TECHNICIAN PORTAL</span>
+          <div className="technician-header-user">
+            <span className="avatar">MK</span>
+            <span>
+              <strong>{profile.name}</strong>
+              <small>{profile.email}</small>
+            </span>
+          </div>
+        </header>
+        <div className="technician-content">{children}</div>
+      </main>
+    </div>
+  )
+}
+
+function TechnicianProfilePage() {
+  const navigate = useNavigate()
+  const state = useMockStore()
+  const initial = state.technicianProfile
+  const [draft, setDraft] = useState<TechnicianProfile>({
+    ...initial,
+    specializations: [...initial.specializations],
+    skills: [...initial.skills],
+    languages: [...initial.languages],
+    pincodes: [...initial.pincodes],
+    workingDays: [...initial.workingDays],
+    workingHours: initial.workingHours ? { ...initial.workingHours } : null,
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [confirmCancel, setConfirmCancel] = useState(false)
+
+  const update = <K extends keyof TechnicianProfile>(key: K, value: TechnicianProfile[K]) =>
+    setDraft((current) => ({ ...current, [key]: value }))
+  const dirty = JSON.stringify(draft) !== JSON.stringify(initial)
+  const allSkills = [...new Set(draft.specializations.flatMap((item) => specializationSkills[item] || []))]
+  const required = [
+    Boolean(draft.name),
+    Boolean(draft.email),
+    Boolean(draft.mobile),
+    Boolean(draft.experience),
+    draft.specializations.length > 0,
+    draft.languages.length > 0,
+    Boolean(draft.city),
+    Boolean(draft.state),
+    draft.pincodes.length > 0,
+    Boolean(draft.serviceRadiusKm),
+    draft.workingDays.length > 0,
+    Boolean(draft.workingHours?.start && draft.workingHours?.end),
+  ]
+  const completion = Math.round((required.filter(Boolean).length / required.length) * 100)
+
+  const validate = () => {
+    const next: Record<string, string> = {}
+    if (!draft.name.trim()) next.name = 'Full name is required.'
+    if (!draft.email.includes('@')) next.email = 'Enter a valid email address.'
+    if (!draft.mobile.trim()) next.mobile = 'Mobile number is required.'
+    if (!draft.experience) next.experience = 'Experience is required.'
+    if (!draft.specializations.length) next.specializations = 'Please select at least one specialization.'
+    if (!draft.languages.length) next.languages = 'Please select at least one language.'
+    if (!draft.city.trim()) next.city = 'City is required.'
+    if (!draft.state.trim()) next.state = 'State is required.'
+    if (!draft.pincodes.length) next.pincodes = 'Please enter at least one service pincode.'
+    if (!draft.serviceRadiusKm) next.serviceRadiusKm = 'Please select a service radius.'
+    if (!draft.workingDays.length) next.workingDays = 'Please select at least one working day.'
+    if (!draft.workingHours?.start || !draft.workingHours?.end) next.workingHours = 'Working hours are required.'
+    else if (draft.workingHours.end <= draft.workingHours.start)
+      next.workingHours = 'End time must be later than start time.'
+    setErrors(next)
+    return !Object.keys(next).length
+  }
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault()
+    setSaved(false)
+    if (!validate()) return
+    setSaving(true)
+    const updated = {
+      ...draft,
+      specialization: draft.specializations[0] || null,
+      serviceArea: draft.city && draft.state ? `${draft.city}, ${draft.state}` : null,
+      availability: draft.workingHours ? `${draft.workingHours.start} - ${draft.workingHours.end}` : null,
+    }
+    await updateTechnicianProfile(updated)
+    setSaving(false)
+    setSaved(true)
+    setErrors({})
+  }
+
+  const cancel = () => {
+    if (dirty) setConfirmCancel(true)
+    else navigate('/technician/dashboard')
+  }
+  const discard = () => {
+    setConfirmCancel(false)
+    navigate('/technician/dashboard')
+  }
+  const toggleList = (key: 'specializations' | 'skills' | 'languages' | 'workingDays', value: string) => {
+    const current = draft[key] as string[]
+    const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+    if (key === 'specializations') {
+      const validSkills = new Set(next.flatMap((item) => specializationSkills[item] || []))
+      update(
+        'skills',
+        draft.skills.filter((item) => validSkills.has(item))
+      )
+    }
+    update(key, next)
+  }
+
+  return (
+    <div className="technician-profile-page">
+      <section className="technician-profile-heading">
+        <div>
+          <span className="section-kicker">TECHNICIAN PROFILE</span>
+          <h1>Professional Profile</h1>
+          <p>Complete your professional information to become eligible for the SmartAssist technician verification process.</p>
+        </div>
+        <div className="completion-card">
+          <span>Profile Completion</span>
+          <strong>{completion}%</strong>
+          <div className="completion-track">
+            <span style={{ width: `${completion}%` }} />
+          </div>
+        </div>
+      </section>
+      {saved && (
+        <div className="technician-success" role="status">
+          <Check size={16} /> Profile saved successfully.
+        </div>
+      )}
+      <form onSubmit={save}>
+        <section className="technician-panel profile-form-panel">
+          <ProfileSectionTitle title="Personal Information" />
+          <div className="technician-form-grid three">
+            {techField('Full Name', draft.name, (value) => update('name', value), errors.name)}
+            {techField('Email Address', draft.email, (value) => update('email', value), errors.email, true)}
+            {techField('Mobile Number', draft.mobile, (value) => update('mobile', value), errors.mobile, true)}
+          </div>
+          <ProfileSectionTitle title="Professional Information" />
+          <div className="technician-form-grid">
+            <div className="technician-field">
+              <label htmlFor="experience">Years of Experience *</label>
+              <select
+                id="experience"
+                value={draft.experience || ''}
+                onChange={(event) => update('experience', event.target.value)}
+              >
+                <option value="">Select experience</option>
+                {['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10+'].map((value) => (
+                  <option key={value} value={value}>
+                    {value} years
+                  </option>
+                ))}
+              </select>
+              {errors.experience && <small className="tech-error">{errors.experience}</small>}
+            </div>
+          </div>
+          <textarea
+            className="experience-summary"
+            value={draft.experienceSummary}
+            onChange={(event) => update('experienceSummary', event.target.value)}
+            placeholder="Describe your professional experience (optional)"
+            aria-label="Professional Experience Summary"
+          />
+          <ProfileSectionTitle title="Specialization" />
+          <div className="selection-grid">
+            {technicianSpecializations.map((item) => (
+              <button
+                className={draft.specializations.includes(item) ? 'selection-card selected' : 'selection-card'}
+                type="button"
+                aria-pressed={draft.specializations.includes(item)}
+                key={item}
+                onClick={() => toggleList('specializations', item)}
+              >
+                <span>{draft.specializations.includes(item) ? <Check size={15} /> : <Wrench size={15} />}</span>
+                {item}
+              </button>
+            ))}
+          </div>
+          {errors.specializations && <small className="tech-error">{errors.specializations}</small>}
+          <ProfileSectionTitle title="Skills / Categories" />
+          <p className="tech-helper">Select skills related to your chosen specialization.</p>
+          <div className="selection-grid skills">
+            {allSkills.length ? (
+              allSkills.map((item) => (
+                <button
+                  className={draft.skills.includes(item) ? 'selection-card selected' : 'selection-card'}
+                  type="button"
+                  aria-pressed={draft.skills.includes(item)}
+                  key={item}
+                  onClick={() => toggleList('skills', item)}
+                >
+                  <span>{draft.skills.includes(item) ? <Check size={15} /> : <Zap size={15} />}</span>
+                  {item}
+                </button>
+              ))
+            ) : (
+              <p className="empty-copy">Choose a specialization to see relevant skills.</p>
+            )}
+          </div>
+          {errors.skills && <small className="tech-error">{errors.skills}</small>}
+          <ProfileSectionTitle title="Languages You Can Support" />
+          <div className="selection-grid compact">
+            {technicianLanguages.map((item) => (
+              <button
+                className={draft.languages.includes(item) ? 'selection-card selected' : 'selection-card'}
+                type="button"
+                aria-pressed={draft.languages.includes(item)}
+                key={item}
+                onClick={() => toggleList('languages', item)}
+              >
+                <span>{draft.languages.includes(item) ? <Check size={15} /> : <MessageCircle size={15} />}</span>
+                {item}
+              </button>
+            ))}
+          </div>
+          {errors.languages && <small className="tech-error">{errors.languages}</small>}
+          <ProfileSectionTitle title="Service Area" />
+          <div className="technician-form-grid two">
+            {techField('City', draft.city, (value) => update('city', value), errors.city)}
+            {techField('State', draft.state, (value) => update('state', value), errors.state)}
+            {techField(
+              'Pincodes',
+              draft.pincodes.join(', '),
+              (value) =>
+                update(
+                  'pincodes',
+                  value
+                    .split(',')
+                    .map((item) => item.trim())
+                    .filter(Boolean)
+                ),
+              errors.pincodes,
+              false,
+              '600028, 600018, 600020'
+            )}
+            <div className="technician-field">
+              <label htmlFor="radius">Service Radius *</label>
+              <select
+                id="radius"
+                value={draft.serviceRadiusKm || ''}
+                onChange={(event) =>
+                  update('serviceRadiusKm', event.target.value ? Number(event.target.value) : null)
+                }
+              >
+                <option value="">Select radius</option>
+                {technicianRadiusOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value} km
+                  </option>
+                ))}
+              </select>
+              {errors.serviceRadiusKm && <small className="tech-error">{errors.serviceRadiusKm}</small>}
+            </div>
+          </div>
+          <ProfileSectionTitle title="Availability" />
+          <div className="technician-field">
+            <label>Working Days *</label>
+            <div className="day-grid">
+              {technicianWorkingDays.map((item) => (
+                <button
+                  className={draft.workingDays.includes(item) ? 'day-button selected' : 'day-button'}
+                  type="button"
+                  aria-pressed={draft.workingDays.includes(item)}
+                  key={item}
+                  onClick={() => toggleList('workingDays', item)}
+                >
+                  {draft.workingDays.includes(item) && <Check size={13} />}
+                  {item}
+                </button>
+              ))}
+            </div>
+            {errors.workingDays && <small className="tech-error">{errors.workingDays}</small>}
+          </div>
+          <div className="technician-form-grid two hours-grid">
+            <div className="technician-field">
+              <label htmlFor="start-time">Start Time *</label>
+              <input
+                id="start-time"
+                type="time"
+                value={draft.workingHours?.start || ''}
+                onChange={(event) =>
+                  update('workingHours', { start: event.target.value, end: draft.workingHours?.end || '' })
+                }
+              />
+            </div>
+            <div className="technician-field">
+              <label htmlFor="end-time">End Time *</label>
+              <input
+                id="end-time"
+                type="time"
+                value={draft.workingHours?.end || ''}
+                onChange={(event) =>
+                  update('workingHours', { start: draft.workingHours?.start || '', end: event.target.value })
+                }
+              />
+            </div>
+          </div>
+          {errors.workingHours && <small className="tech-error">{errors.workingHours}</small>}
+          <div className="technician-form-actions">
+            <button className="secondary-button" type="button" onClick={cancel}>
+              Cancel
+            </button>
+            <button className="primary-button" disabled={saving}>
+              {saving ? 'Saving Profile...' : 'Save Profile'}
+            </button>
+          </div>
+        </section>
+      </form>
+      {confirmCancel && (
+        <div className="ticket-modal-backdrop">
+          <section className="ticket-modal cancel-modal" role="dialog" aria-modal="true" aria-labelledby="cancel-profile-title">
+            <h2 id="cancel-profile-title">You have unsaved changes.</h2>
+            <p>Discard your changes?</p>
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setConfirmCancel(false)}>
+                Continue Editing
+              </button>
+              <button className="primary-button" type="button" onClick={discard}>
+                Discard
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProfileSectionTitle({ title }: { title: string }) { return <h2 className="profile-section-title">{title}</h2> }
+function techField(label: string, value: string, onChange: (value: string) => void, error?: string, readOnly = false, placeholder = '') { const id = `tech-${label.toLowerCase().replaceAll(' ', '-')}`; return <div className="technician-field"><label htmlFor={id}>{label}{['Full Name', 'Email Address', 'Mobile Number', 'City', 'State', 'Pincodes'].includes(label) ? ' *' : ''}</label><input id={id} value={value} onChange={(event) => onChange(event.target.value)} readOnly={readOnly} placeholder={placeholder} />{error && <small className="tech-error">{error}</small>}</div> }
+
 export default App
