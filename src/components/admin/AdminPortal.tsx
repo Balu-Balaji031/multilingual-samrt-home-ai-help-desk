@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   Award,
@@ -8,35 +8,30 @@ import {
   Check,
   CheckCircle2,
   Clock,
-  ExternalLink,
   Eye,
+  EyeOff,
   FileText,
-  Home,
   LogOut,
-  MapPin,
   RotateCcw,
+  Search,
+  Settings,
   ShieldCheck,
-  Sparkles,
-  Star,
-  Ticket,
   UserCheck,
   UserRound,
   Users,
   Wrench,
   X,
   XCircle,
-  Zap,
 } from 'lucide-react'
 import { useMockStore, mockStore } from '../../services/mockStore'
+import { registeredCustomers, type CustomerProfile } from '../../mocks/customerData'
 import type { AssessmentDetails } from '../../types/technicianPortal'
 
-type AdminTab = 'applications' | 'assessments' | 'approvals' | 'tickets'
+type AdminTab = 'applications' | 'assessments' | 'approvals' | 'approved_technicians' | 'customers' | 'settings'
 
-export function AdminPortal() {
-  const navigate = useNavigate()
+export function AdminPortal({ defaultTab = 'applications' }: { defaultTab?: AdminTab }) {
   const state = useMockStore()
-  const [currentTab, setCurrentTab] = useState<AdminTab>('applications')
-  const [selectedTicketId, setSelectedTicketId] = useState<string | null>(null)
+  const [currentTab, setCurrentTab] = useState<AdminTab>(defaultTab)
 
   // Modals / subview state
   const [viewingApplication, setViewingApplication] = useState(false)
@@ -57,13 +52,47 @@ export function AdminPortal() {
   const [evalScore, setEvalScore] = useState('88')
   const [evalNotes, setEvalNotes] = useState('Demonstrated good grasp of electrical safety protocols, proper conduit wiring, and accurate sensor pairing.')
 
-  // Ticket rating simulation
-  const [ratingValue, setRatingValue] = useState(5)
-  const [ratingReview, setRatingReview] = useState('Mark was very punctual, diagnosed the faulty board quickly, and fixed our switch cleanly!')
+  const [customerSearch, setCustomerSearch] = useState('')
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerProfile | null>(null)
+  const [adminProfile, setAdminProfile] = useState({
+    name: 'Lead Administrator',
+    email: 'admin@smartassist.ai',
+    mobile: '+91 98765 43210',
+    role: 'Lead Administrator',
+  })
+  const [profileModalOpen, setProfileModalOpen] = useState(false)
+  const [profileForm, setProfileForm] = useState(adminProfile)
+  const [profileErrors, setProfileErrors] = useState<Record<string, string>>({})
+  const [profileToast, setProfileToast] = useState('')
+  const [portalSettings, setPortalSettings] = useState({
+    portalName: 'SmartAssist Admin',
+    supportEmail: 'support@smartassist.ai',
+    supportPhone: '+91 44 3954 2020',
+  })
+  const [portalToast, setPortalToast] = useState('')
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  })
+  const [passwordErrors, setPasswordErrors] = useState<Record<string, string>>({})
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [passwordToast, setPasswordToast] = useState('')
 
   const profile = state.technicianProfile
   const app = state.application
   const currentCenter = state.assessmentCenters.find((c) => c.id === selectedCenterId) || state.assessmentCenters[0]
+  const filteredCustomers = registeredCustomers.filter((customer) => {
+    const query = customerSearch.trim().toLowerCase()
+    if (!query) return true
+    return [customer.name, customer.email, customer.mobile, customer.city]
+      .join(' ')
+      .toLowerCase()
+      .includes(query)
+  })
 
   const handleRequestChanges = (e: FormEvent) => {
     e.preventDefault()
@@ -114,15 +143,48 @@ export function AdminPortal() {
 
   const handleFinalApprove = () => {
     mockStore.finalApproveTechnician()
-    setCurrentTab('tickets')
+    setCurrentTab('approved_technicians')
   }
 
-  const handleAssignJob = (ticketId: string) => {
-    mockStore.assignTicketToTechnician(ticketId, 'TECH-MK-01', profile.name)
+  const validateAdminProfile = () => {
+    const nextErrors: Record<string, string> = {}
+    if (!profileForm.name.trim()) nextErrors.name = 'Name cannot be empty.'
+    if (!/^\S+@\S+\.\S+$/.test(profileForm.email)) nextErrors.email = 'Email must be valid.'
+    if (!/^\+?[0-9\s-]{10,15}$/.test(profileForm.mobile.trim())) nextErrors.mobile = 'Mobile number is invalid.'
+    setProfileErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
   }
 
-  const handleCustomerRate = (ticketId: string) => {
-    mockStore.rateTechnician(ticketId, ratingValue, ratingReview)
+  const handleProfileSave = (e: FormEvent) => {
+    e.preventDefault()
+    if (!validateAdminProfile()) return
+    setAdminProfile({ ...profileForm })
+    setProfileModalOpen(false)
+    setProfileToast('Profile updated successfully.')
+    setProfileErrors({})
+  }
+
+  const handlePortalSettingsSave = (e: FormEvent) => {
+    e.preventDefault()
+    setPortalToast('Portal settings updated successfully.')
+  }
+
+  const validatePasswordChange = () => {
+    const nextErrors: Record<string, string> = {}
+    if (!passwordForm.currentPassword.trim()) nextErrors.currentPassword = 'Current password is required.'
+    if (passwordForm.newPassword.length < 8) nextErrors.newPassword = 'New password must contain at least 8 characters.'
+    if (passwordForm.confirmPassword !== passwordForm.newPassword) nextErrors.confirmPassword = 'Confirm password must match the new password.'
+    setPasswordErrors(nextErrors)
+    return Object.keys(nextErrors).length === 0
+  }
+
+  const handlePasswordChange = (e: FormEvent) => {
+    e.preventDefault()
+    if (!validatePasswordChange()) return
+    setPasswordModalOpen(false)
+    setPasswordToast('Password changed successfully.')
+    setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    setPasswordErrors({})
   }
 
   return (
@@ -172,34 +234,34 @@ export function AdminPortal() {
 
           <button
             type="button"
-            className={currentTab === 'tickets' ? 'customer-nav active' : 'customer-nav'}
-            onClick={() => setCurrentTab('tickets')}
+            className={currentTab === 'approved_technicians' ? 'customer-nav active' : 'customer-nav'}
+            onClick={() => setCurrentTab('approved_technicians')}
           >
-            <Ticket size={18} />
-            Tickets & Jobs
-            <span className="nav-count">{state.tickets.length}</span>
+            <Award size={18} />
+            Approved Technicians
+            {app?.status === 'approved' && <span className="nav-count success">1</span>}
+          </button>
+
+          <button
+            type="button"
+            className={currentTab === 'customers' ? 'customer-nav active' : 'customer-nav'}
+            onClick={() => setCurrentTab('customers')}
+          >
+            <Users size={18} />
+            Customers
+          </button>
+
+          <button
+            type="button"
+            className={currentTab === 'settings' ? 'customer-nav active' : 'customer-nav'}
+            onClick={() => setCurrentTab('settings')}
+          >
+            <Settings size={18} />
+            Settings
           </button>
         </nav>
 
         <div className="sidebar-divider" />
-
-        <div className="admin-quick-switch">
-          <small>PORTAL SWITCHER</small>
-          <button
-            type="button"
-            className="switch-portal-button"
-            onClick={() => navigate('/technician/dashboard')}
-          >
-            <Wrench size={14} /> Switch to Technician View
-          </button>
-          <button
-            type="button"
-            className="switch-portal-button"
-            onClick={() => navigate('/customer/dashboard')}
-          >
-            <Home size={14} /> Switch to Customer View
-          </button>
-        </div>
 
         <div className="sidebar-user">
           <span className="avatar admin-avatar">AD</span>
@@ -220,24 +282,15 @@ export function AdminPortal() {
           <div>
             <span className="header-kicker">ADMINISTRATION & VERIFICATION</span>
             <h1>
-              {currentTab === 'applications' && 'Technician Applications (Step 6)'}
-              {currentTab === 'assessments' && 'Practical Assessment Assignment & Evaluation (Steps 7 & 8)'}
-              {currentTab === 'approvals' && 'Final Technician Approval (Step 9)'}
-              {currentTab === 'tickets' && 'Customer Tickets & Job Assignment (Step 10)'}
+              {currentTab === 'applications' && 'Technician Applications'}
+              {currentTab === 'assessments' && 'Practical Assessment Assignment & Evaluation'}
+              {currentTab === 'approvals' && 'Final Technician Approval'}
+              {currentTab === 'approved_technicians' && 'Approved Technicians'}
+              {currentTab === 'customers' && 'Customers'}
+              {currentTab === 'settings' && 'Settings'}
             </h1>
           </div>
           <div className="header-actions">
-            <button
-              type="button"
-              className="secondary-button compact-button"
-              onClick={() => {
-                if (window.confirm('Reset all demo data to initial state?')) {
-                  mockStore.resetStore()
-                }
-              }}
-            >
-              <RotateCcw size={14} /> Reset Demo Data
-            </button>
           </div>
         </header>
 
@@ -583,9 +636,9 @@ export function AdminPortal() {
                     <button
                       type="button"
                       className="primary-button"
-                      onClick={() => setCurrentTab('tickets')}
+                      onClick={() => setCurrentTab('approved_technicians')}
                     >
-                      View Tickets & Assign Jobs (Step 10)
+                      View Approved Technicians
                     </button>
                   </div>
                 ) : app?.status !== 'assessment_passed' ? (
@@ -695,323 +748,531 @@ export function AdminPortal() {
           )}
 
           {/* TAB 4: TICKETS & JOB ASSIGNMENT (STEP 10) */}
-          {currentTab === 'tickets' && (
+          {currentTab === 'approved_technicians' && (
             <div className="admin-section-content">
               <div className="admin-info-banner">
-                <Ticket size={20} />
+                <Award size={20} />
                 <div>
-                  <strong>Steps 10 & 11: Customer Tickets & Job Assignment</strong>
+                  <strong>Approved Technicians</strong>
                   <p>
-                    Match customer tickets to approved technicians based on specialization, skills, language, and service area.
+                    View verified technicians who are approved and eligible for service jobs.
                   </p>
                 </div>
               </div>
 
-              <div className="admin-tickets-layout">
-                {/* Tickets List */}
-                <section className="content-panel">
-                  <div className="panel-header-row">
-                    <h3>Customer Service Tickets</h3>
-                    <span className="status-count-badge">{state.tickets.length} Tickets</span>
+              <section className="content-panel admin-table-panel">
+                <div className="panel-header-row">
+                  <h3>Approved Technicians</h3>
+                  <span className="status-count-badge">
+                    {app?.status === 'approved' ? '1 Approved' : 'No approved technicians yet'}
+                  </span>
+                </div>
+
+                {!app || app.status !== 'approved' ? (
+                  <div className="admin-empty-state">
+                    <Award size={36} />
+                    <h4>No approved technicians yet</h4>
+                    <p>
+                      Technicians must complete the application, pass practical assessment, and receive final approval to appear here.
+                    </p>
                   </div>
-
-                  <div className="ticket-cards-list">
-                    {state.tickets.map((ticket) => {
-                      const isAssignedToMark = ticket.assignedTechnicianId === 'TECH-MK-01'
-                      return (
-                        <article
-                          key={ticket.id}
-                          className={`admin-ticket-card ${selectedTicketId === ticket.id ? 'selected' : ''}`}
-                          onClick={() => setSelectedTicketId(ticket.id)}
-                        >
-                          <div className="admin-ticket-top">
-                            <span className="ticket-id-tag">
-                              <Ticket size={14} /> {ticket.id}
-                            </span>
-                            <span className={`priority-badge ${ticket.priority.toLowerCase()}`}>
-                              {ticket.priority} Priority
-                            </span>
-                            <span className={`status-pill ${ticket.status === 'COMPLETED' ? 'success' : ticket.status === 'CREATED' ? 'info' : 'warning'}`}>
-                              {ticket.status.replace('_', ' ')}
-                            </span>
-                          </div>
-
-                          <div className="admin-ticket-main">
-                            <h4>{ticket.deviceName} ({ticket.brand})</h4>
-                            <p className="ticket-problem">
-                              <em>Problem:</em> "{ticket.problemDescription}"
-                            </p>
-                            <div className="ticket-customer-meta">
-                              <span><strong>Customer:</strong> {ticket.customerName}</span>
-                              <span><strong>Phone:</strong> {ticket.customerPhone}</span>
-                              <span><strong>Language:</strong> {ticket.customerLanguage}</span>
-                            </div>
-                            <div className="ticket-location-meta">
-                              <MapPin size={13} /> {ticket.customerAddress}
-                            </div>
-                          </div>
-
-                          <div className="admin-ticket-footer">
-                            {isAssignedToMark ? (
-                              <div className="assigned-tech-tag">
-                                <ShieldCheck size={14} /> Assigned to: <strong>{ticket.assignedTechnicianName}</strong>
-                              </div>
-                            ) : (
-                              <span className="unassigned-text">Unassigned Ticket</span>
-                            )}
+                ) : (
+                  <div className="admin-table-container">
+                    <table className="admin-table">
+                      <thead>
+                        <tr>
+                          <th>Name</th>
+                          <th>Email</th>
+                          <th>Mobile</th>
+                          <th>Experience</th>
+                          <th>Specialization</th>
+                          <th>Skills</th>
+                          <th>Languages</th>
+                          <th>City</th>
+                          <th>State</th>
+                          <th>Service Radius</th>
+                          <th>Assessment</th>
+                          <th>Approval</th>
+                          <th>Eligibility</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>
+                            <strong>{profile.name}</strong>
+                          </td>
+                          <td>{profile.email}</td>
+                          <td>{profile.mobile}</td>
+                          <td>{profile.experience} years</td>
+                          <td>{profile.specializations.join(', ') || profile.specialization}</td>
+                          <td>{profile.skills.join(', ') || 'None'}</td>
+                          <td>{profile.languages.join(', ')}</td>
+                          <td>{profile.city}</td>
+                          <td>{profile.state}</td>
+                          <td>{profile.serviceRadiusKm} km</td>
+                          <td>
+                            <span className="status-pill success">Passed</span>
+                          </td>
+                          <td>
+                            <span className="status-pill success">Approved</span>
+                          </td>
+                          <td>
+                            <span className="status-pill success">Eligible</span>
+                          </td>
+                          <td>
                             <button
                               type="button"
                               className="text-button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedTicketId(ticket.id)
-                              }}
+                              onClick={() => setViewingApplication(true)}
                             >
-                              Details & Assign →
+                              View Details →
                             </button>
-                          </div>
-                        </article>
-                      )
-                    })}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {currentTab === 'customers' && (
+            <div className="admin-section-content">
+              <div className="admin-info-banner">
+                <Users size={20} />
+                <div>
+                  <strong>Customers</strong>
+                  <p>View registered customer information.</p>
+                </div>
+              </div>
+
+              <section className="content-panel admin-table-panel">
+                <div className="panel-header-row">
+                  <h3>Registered Customers</h3>
+                  <span className="status-count-badge">
+                    {filteredCustomers.length} {filteredCustomers.length === 1 ? 'Customer' : 'Customers'}
+                  </span>
+                </div>
+
+                <div className="catalog-toolbar" style={{ marginBottom: '18px' }}>
+                  <div className="catalog-search">
+                    <Search size={17} />
+                    <input
+                      value={customerSearch}
+                      onChange={(event) => setCustomerSearch(event.target.value)}
+                      placeholder="Search customers..."
+                      aria-label="Search customers"
+                    />
+                  </div>
+                </div>
+
+                <div className="admin-table-container">
+                  <table className="admin-table">
+                    <thead>
+                      <tr>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Mobile Number</th>
+                        <th>Address</th>
+                        <th>City</th>
+                        <th>State</th>
+                        <th>Pincode</th>
+                        <th>Landmark</th>
+                        <th>Preferred Language</th>
+                        <th>Registered Date</th>
+                        <th>Account Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredCustomers.map((customer) => (
+                        <tr key={`${customer.email}-${customer.mobile}`}>
+                          <td><strong>{customer.name}</strong></td>
+                          <td>{customer.email}</td>
+                          <td>{customer.mobile}</td>
+                          <td>{customer.address1}{customer.address2 ? `, ${customer.address2}` : ''}</td>
+                          <td>{customer.city}</td>
+                          <td>{customer.state}</td>
+                          <td>{customer.pincode}</td>
+                          <td>{customer.landmark}</td>
+                          <td>{customer.preferredLanguage || (customer.language === 'ta' ? 'Tamil' : customer.language === 'te' ? 'Telugu' : 'English')}</td>
+                          <td>{customer.registeredDate || 'N/A'}</td>
+                          <td>
+                            <span className={`status-pill ${customer.accountStatus === 'Active' ? 'success' : 'warning'}`}>
+                              {customer.accountStatus || 'Active'}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="text-button"
+                              onClick={() => setSelectedCustomer(customer)}
+                            >
+                              View Details
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {filteredCustomers.length === 0 && (
+                  <div className="admin-empty-state">
+                    <Users size={36} />
+                    <h4>No customers found</h4>
+                    <p>Try a different search term using customer name, email, mobile number, or city.</p>
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
+
+          {currentTab === 'settings' && (
+            <div className="admin-section-content">
+              <div className="admin-info-banner">
+                <Settings size={20} />
+                <div>
+                  <strong>Settings</strong>
+                  <p>Manage your administrator profile, portal information and account security.</p>
+                </div>
+              </div>
+
+              {profileToast && <div className="admin-settings-toast success">Profile updated successfully.</div>}
+              {portalToast && <div className="admin-settings-toast success">Portal settings updated successfully.</div>}
+              {passwordToast && <div className="admin-settings-toast success">Password changed successfully.</div>}
+
+              <div className="admin-settings-grid">
+                <section className="content-panel admin-settings-card">
+                  <div className="panel-header-row">
+                    <h3>Admin Profile</h3>
+                  </div>
+                  <p className="admin-settings-subtitle">Manage your administrator account information.</p>
+
+                  <div className="admin-settings-list">
+                    <div className="admin-setting-row">
+                      <span>Name</span>
+                      <strong>{adminProfile.name}</strong>
+                    </div>
+                    <div className="admin-setting-row">
+                      <span>Email</span>
+                      <strong>{adminProfile.email}</strong>
+                    </div>
+                    <div className="admin-setting-row">
+                      <span>Mobile Number</span>
+                      <strong>{adminProfile.mobile}</strong>
+                    </div>
+                    <div className="admin-setting-row">
+                      <span>Role</span>
+                      <strong>{adminProfile.role}</strong>
+                    </div>
+                  </div>
+
+                  <div className="admin-settings-actions">
+                    <button type="button" className="primary-button compact-button" onClick={() => { setProfileForm(adminProfile); setProfileErrors({}); setProfileModalOpen(true) }}>
+                      Edit Profile
+                    </button>
                   </div>
                 </section>
 
-                {/* Selected Ticket Details & Assignment Panel */}
-                {(() => {
-                  const selectedTicket = state.tickets.find((t) => t.id === selectedTicketId) || state.tickets[0]
-                  if (!selectedTicket) return null
+                <section className="content-panel admin-settings-card">
+                  <div className="panel-header-row">
+                    <h3>Portal Settings</h3>
+                  </div>
+                  <p className="admin-settings-subtitle">Manage basic SmartAssist portal information.</p>
 
-                  const isApproved = app?.status === 'approved' || profile.status === 'approved'
-                  const isAssigned = Boolean(selectedTicket.assignedTechnicianId)
+                  <form className="portal-form admin-settings-form" onSubmit={handlePortalSettingsSave}>
+                    <div className="technician-field">
+                      <label htmlFor="portal-name">Portal Name</label>
+                      <input
+                        id="portal-name"
+                        type="text"
+                        value={portalSettings.portalName}
+                        onChange={(e) => setPortalSettings((current) => ({ ...current, portalName: e.target.value }))}
+                      />
+                    </div>
 
-                  return (
-                    <section className="content-panel admin-assign-detail-panel">
-                      <div className="panel-header-row">
-                        <h3>Ticket Inspection: {selectedTicket.id}</h3>
-                        <span className="device-badge-sm">{selectedTicket.deviceName}</span>
-                      </div>
+                    <div className="technician-field">
+                      <label htmlFor="support-email">Support Email</label>
+                      <input
+                        id="support-email"
+                        type="email"
+                        value={portalSettings.supportEmail}
+                        onChange={(e) => setPortalSettings((current) => ({ ...current, supportEmail: e.target.value }))}
+                      />
+                    </div>
 
-                      {/* Ticket Summary */}
-                      <div className="ticket-inspection-box">
-                        <div className="review-grid">
-                          <div className="review-item">
-                            <span>Customer Name</span>
-                            <strong>{selectedTicket.customerName}</strong>
-                          </div>
-                          <div className="review-item">
-                            <span>Contact Phone</span>
-                            <strong>{selectedTicket.customerPhone}</strong>
-                          </div>
-                          <div className="review-item">
-                            <span>Customer Address</span>
-                            <strong>{selectedTicket.customerAddress}</strong>
-                          </div>
-                          <div className="review-item">
-                            <span>Preferred Language</span>
-                            <strong>{selectedTicket.customerLanguage}</strong>
-                          </div>
-                          <div className="review-item full-width">
-                            <span>Customer Original Problem Report</span>
-                            <strong className="problem-highlight">"{selectedTicket.problemDescription}"</strong>
-                          </div>
-                        </div>
+                    <div className="technician-field">
+                      <label htmlFor="support-phone">Support Phone</label>
+                      <input
+                        id="support-phone"
+                        type="tel"
+                        value={portalSettings.supportPhone}
+                        onChange={(e) => setPortalSettings((current) => ({ ...current, supportPhone: e.target.value }))}
+                      />
+                    </div>
 
-                        {/* Customer Arrival OTP Reveal Box (for Demo/Testing) */}
-                        <div className="customer-otp-simulator-box">
-                          <div className="otp-sim-header">
-                            <Zap size={16} />
-                            <span>Customer Ticket OTP (Used for Step 11 Arrival Verification)</span>
-                          </div>
-                          <div className="otp-sim-body">
-                            <strong>{selectedTicket.otp}</strong>
-                            <small>
-                              {selectedTicket.otpVerified
-                                ? '✓ Verified by Technician on site'
-                                : 'Share this 6-digit OTP when technician arrives to unlock repair'}
-                            </small>
-                          </div>
-                        </div>
+                    <div className="admin-settings-actions right-align">
+                      <button type="submit" className="primary-button compact-button">Save Changes</button>
+                    </div>
+                  </form>
+                </section>
 
-                        {/* AI Troubleshooting Section */}
-                        {selectedTicket.aiTroubleshooting && (
-                          <div className="ai-summary-card">
-                            <div className="ai-summary-header">
-                              <Sparkles size={16} />
-                              <h4>AI Troubleshooting Summary</h4>
-                            </div>
-                            <div className="ai-summary-details">
-                              <div>
-                                <span>Problem Description:</span>
-                                <p>{selectedTicket.aiTroubleshooting.problemDescription}</p>
-                              </div>
-                              <div>
-                                <span>Troubleshooting Steps:</span>
-                                <ul>
-                                  {selectedTicket.aiTroubleshooting.troubleshootingSteps.map((s) => (
-                                    <li key={s}>{s}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                              <div>
-                                <span>Key Findings:</span>
-                                <p>{selectedTicket.aiTroubleshooting.keyFindings}</p>
-                              </div>
-                              <div>
-                                <span>Escalation Reason:</span>
-                                <p>{selectedTicket.aiTroubleshooting.escalationReason}</p>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
+                <section className="content-panel admin-settings-card">
+                  <div className="panel-header-row">
+                    <h3>Security</h3>
+                  </div>
+                  <p className="admin-settings-subtitle">Manage your administrator account security.</p>
 
-                      {/* Technician Assignment Section */}
-                      <div className="assignment-section">
-                        <h4>Suitable Technicians (Matching Criteria)</h4>
-
-                        {!isApproved ? (
-                          <div className="admin-empty-state-card warning">
-                            <AlertTriangle size={24} />
-                            <p>
-                              No technicians are currently <strong>Eligible for Jobs</strong>. Complete Steps 5–9 to approve Mark Kumar.
-                            </p>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              onClick={() => {
-                                mockStore.finalApproveTechnician()
-                              }}
-                            >
-                              Fast-Approve Mark Kumar (Demo)
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="suitable-tech-card">
-                            <div className="tech-card-top">
-                              <span className="avatar">MK</span>
-                              <div>
-                                <strong>{profile.name}</strong>
-                                <small>Verified Smart Home Specialist · 4.9 ★</small>
-                              </div>
-                              <span className="status-pill success">Available</span>
-                            </div>
-
-                            <div className="tech-match-grid">
-                              <div>
-                                <span>Specialization:</span>
-                                <strong>{profile.specializations.join(', ') || profile.specialization}</strong>
-                              </div>
-                              <div>
-                                <span>Languages:</span>
-                                <strong>{profile.languages.join(', ')}</strong>
-                              </div>
-                              <div>
-                                <span>Service Area:</span>
-                                <strong>{profile.serviceArea || profile.city} (Radius: {profile.serviceRadiusKm} km)</strong>
-                              </div>
-                              <div>
-                                <span>Availability:</span>
-                                <strong>{profile.availability || '09:00 - 18:00'}</strong>
-                              </div>
-                            </div>
-
-                            <div className="tech-card-actions">
-                              {isAssigned ? (
-                                <div className="assigned-confirm-box">
-                                  <CheckCircle2 size={16} className="success-icon" />
-                                  <span>Assigned to {selectedTicket.assignedTechnicianName} ({selectedTicket.status})</span>
-                                  <button
-                                    type="button"
-                                    className="outline-button compact-button"
-                                    onClick={() => navigate(`/technician/jobs/${selectedTicket.id}`)}
-                                  >
-                                    View in Technician Portal <ExternalLink size={13} />
-                                  </button>
-                                </div>
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="primary-button"
-                                  onClick={() => handleAssignJob(selectedTicket.id)}
-                                >
-                                  <Check size={16} /> Assign Job to {profile.name}
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Customer Rating Simulation for Completed Job (Step 11.17) */}
-                      {selectedTicket.status === 'COMPLETED' && (
-                        <div className="customer-rating-simulator">
-                          <div className="rating-header">
-                            <Star size={18} className="star-icon" />
-                            <h4>Customer Rating Simulation (Step 11.17)</h4>
-                          </div>
-                          <p className="rating-desc">
-                            The repair is completed. Simulate the customer rating the technician:
-                          </p>
-                          {selectedTicket.customerRating ? (
-                            <div className="rating-submitted-box">
-                              <div className="stars-row">
-                                {[1, 2, 3, 4, 5].map((s) => (
-                                  <Star
-                                    key={s}
-                                    size={18}
-                                    fill={s <= selectedTicket.customerRating! ? '#eab308' : 'none'}
-                                    color={s <= selectedTicket.customerRating! ? '#eab308' : '#cbd5e1'}
-                                  />
-                                ))}
-                                <strong>{selectedTicket.customerRating}.0 / 5.0</strong>
-                              </div>
-                              <p>"{selectedTicket.customerReview || 'Excellent service!'}"</p>
-                            </div>
-                          ) : (
-                            <div className="rating-input-form">
-                              <div className="stars-selector">
-                                {[1, 2, 3, 4, 5].map((star) => (
-                                  <button
-                                    key={star}
-                                    type="button"
-                                    className="star-button"
-                                    onClick={() => setRatingValue(star)}
-                                  >
-                                    <Star
-                                      size={22}
-                                      fill={star <= ratingValue ? '#eab308' : 'none'}
-                                      color={star <= ratingValue ? '#eab308' : '#cbd5e1'}
-                                    />
-                                  </button>
-                                ))}
-                                <span>{ratingValue} Stars</span>
-                              </div>
-                              <input
-                                type="text"
-                                className="rating-input"
-                                value={ratingReview}
-                                onChange={(e) => setRatingReview(e.target.value)}
-                                placeholder="Write customer feedback..."
-                              />
-                              <button
-                                type="button"
-                                className="primary-button compact-button"
-                                onClick={() => handleCustomerRate(selectedTicket.id)}
-                              >
-                                Submit Customer Rating
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </section>
-                  )
-                })()}
+                  <div className="admin-settings-actions">
+                    <button type="button" className="primary-button compact-button" onClick={() => { setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' }); setPasswordErrors({}); setPasswordModalOpen(true) }}>
+                      Change Password
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {profileModalOpen && (
+        <div className="ticket-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-profile-title">
+          <div className="ticket-modal admin-app-modal">
+            <button className="modal-close" type="button" aria-label="Close" onClick={() => { setProfileModalOpen(false); setProfileErrors({}) }}>
+              <X size={18} />
+            </button>
+            <div className="review-modal-header">
+              <span className="ai-entry-icon"><UserRound size={24} /></span>
+              <div>
+                <h2 id="admin-profile-title">Edit Profile</h2>
+              </div>
+            </div>
+
+            <form onSubmit={handleProfileSave} className="portal-form">
+              <div className="technician-field">
+                <label htmlFor="admin-profile-name">Full Name</label>
+                <input
+                  id="admin-profile-name"
+                  type="text"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm((current) => ({ ...current, name: e.target.value }))}
+                />
+                {profileErrors.name && <small className="field-error">{profileErrors.name}</small>}
+              </div>
+
+              <div className="technician-field">
+                <label htmlFor="admin-profile-email">Email</label>
+                <input
+                  id="admin-profile-email"
+                  type="email"
+                  value={profileForm.email}
+                  onChange={(e) => setProfileForm((current) => ({ ...current, email: e.target.value }))}
+                />
+                {profileErrors.email && <small className="field-error">{profileErrors.email}</small>}
+              </div>
+
+              <div className="technician-field">
+                <label htmlFor="admin-profile-mobile">Mobile Number</label>
+                <input
+                  id="admin-profile-mobile"
+                  type="tel"
+                  value={profileForm.mobile}
+                  onChange={(e) => setProfileForm((current) => ({ ...current, mobile: e.target.value }))}
+                />
+                {profileErrors.mobile && <small className="field-error">{profileErrors.mobile}</small>}
+              </div>
+
+              <div className="technician-field">
+                <label htmlFor="admin-profile-role">Role</label>
+                <input id="admin-profile-role" type="text" value={adminProfile.role} readOnly />
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => { setProfileModalOpen(false); setProfileErrors({}) }}>Cancel</button>
+                <button type="submit" className="primary-button">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {passwordModalOpen && (
+        <div className="ticket-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="admin-password-title">
+          <div className="ticket-modal admin-app-modal">
+            <button className="modal-close" type="button" aria-label="Close" onClick={() => { setPasswordModalOpen(false); setPasswordErrors({}) }}>
+              <X size={18} />
+            </button>
+            <div className="review-modal-header">
+              <span className="ai-entry-icon"><Settings size={24} /></span>
+              <div>
+                <h2 id="admin-password-title">Change Password</h2>
+              </div>
+            </div>
+
+            <form onSubmit={handlePasswordChange} className="portal-form">
+              <div className="technician-field">
+                <label htmlFor="current-password">Current Password *</label>
+                <div className="password-wrap">
+                  <input
+                    id="current-password"
+                    type={showCurrentPassword ? 'text' : 'password'}
+                    value={passwordForm.currentPassword}
+                    onChange={(e) => setPasswordForm((current) => ({ ...current, currentPassword: e.target.value }))}
+                    placeholder="Enter current password"
+                  />
+                  <button type="button" className="icon-button" onClick={() => setShowCurrentPassword((current) => !current)} aria-label="Toggle current password visibility">
+                    {showCurrentPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {passwordErrors.currentPassword && <small className="field-error">{passwordErrors.currentPassword}</small>}
+              </div>
+
+              <div className="technician-field">
+                <label htmlFor="new-password">New Password *</label>
+                <div className="password-wrap">
+                  <input
+                    id="new-password"
+                    type={showNewPassword ? 'text' : 'password'}
+                    value={passwordForm.newPassword}
+                    onChange={(e) => setPasswordForm((current) => ({ ...current, newPassword: e.target.value }))}
+                    placeholder="At least 8 characters"
+                  />
+                  <button type="button" className="icon-button" onClick={() => setShowNewPassword((current) => !current)} aria-label="Toggle new password visibility">
+                    {showNewPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {passwordErrors.newPassword && <small className="field-error">{passwordErrors.newPassword}</small>}
+              </div>
+
+              <div className="technician-field">
+                <label htmlFor="confirm-password">Confirm New Password *</label>
+                <div className="password-wrap">
+                  <input
+                    id="confirm-password"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) => setPasswordForm((current) => ({ ...current, confirmPassword: e.target.value }))}
+                    placeholder="Re-enter new password"
+                  />
+                  <button type="button" className="icon-button" onClick={() => setShowConfirmPassword((current) => !current)} aria-label="Toggle confirm password visibility">
+                    {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                {passwordErrors.confirmPassword && <small className="field-error">{passwordErrors.confirmPassword}</small>}
+              </div>
+
+              <div className="modal-actions">
+                <button type="button" className="secondary-button" onClick={() => { setPasswordModalOpen(false); setPasswordErrors({}) }}>Cancel</button>
+                <button type="submit" className="primary-button">Change Password</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {selectedCustomer && (
+        <div className="ticket-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="customer-details-title">
+          <div className="ticket-modal admin-app-modal">
+            <button
+              className="modal-close"
+              type="button"
+              aria-label="Close"
+              onClick={() => setSelectedCustomer(null)}
+            >
+              <X size={18} />
+            </button>
+
+            <div className="review-modal-header">
+              <span className="ai-entry-icon">
+                <UserRound size={24} />
+              </span>
+              <div>
+                <h2 id="customer-details-title">Customer Details</h2>
+                <p>{selectedCustomer.name}</p>
+              </div>
+            </div>
+
+            <div className="review-modal-content">
+              <section className="review-section">
+                <h3>Personal Details</h3>
+                <div className="review-grid">
+                  <div className="review-item">
+                    <span>Name</span>
+                    <strong>{selectedCustomer.name}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Email</span>
+                    <strong>{selectedCustomer.email}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Mobile</span>
+                    <strong>{selectedCustomer.mobile}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="review-section">
+                <h3>Address Details</h3>
+                <div className="review-grid">
+                  <div className="review-item full-width">
+                    <span>Address Line 1</span>
+                    <strong>{selectedCustomer.address1}</strong>
+                  </div>
+                  <div className="review-item full-width">
+                    <span>Address Line 2</span>
+                    <strong>{selectedCustomer.address2 || 'Not provided'}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>City</span>
+                    <strong>{selectedCustomer.city}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>State</span>
+                    <strong>{selectedCustomer.state}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Pincode</span>
+                    <strong>{selectedCustomer.pincode}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Landmark</span>
+                    <strong>{selectedCustomer.landmark}</strong>
+                  </div>
+                  <div className="review-item full-width">
+                    <span>Location</span>
+                    <strong>{selectedCustomer.location}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="review-section">
+                <h3>Account Details</h3>
+                <div className="review-grid">
+                  <div className="review-item">
+                    <span>Preferred Language</span>
+                    <strong>{selectedCustomer.preferredLanguage || (selectedCustomer.language === 'ta' ? 'Tamil' : selectedCustomer.language === 'te' ? 'Telugu' : 'English')}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Registered Date</span>
+                    <strong>{selectedCustomer.registeredDate || 'N/A'}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Account Status</span>
+                    <strong>{selectedCustomer.accountStatus || 'Active'}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Last Login</span>
+                    <strong>{selectedCustomer.lastLogin || 'Not available'}</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODAL 1: VIEW APPLICATION DETAILS (STEP 6) */}
       {viewingApplication && (

@@ -3,7 +3,7 @@ export interface CustomerProfile {
   email: string
   mobile: string
   address1: string
-  address2: string
+  address2?: string
   city: string
   state: string
   pincode: string
@@ -11,6 +11,11 @@ export interface CustomerProfile {
   language: 'en' | 'ta' | 'te'
   profilePhoto?: string
   location: string
+  registeredDate?: string
+  accountStatus?: 'Active' | 'Inactive'
+  lastLogin?: string
+  preferredLanguage?: string
+  password?: string
 }
 
 export const mockCustomerProfile: CustomerProfile = {
@@ -25,7 +30,34 @@ export const mockCustomerProfile: CustomerProfile = {
   landmark: 'Near Adyar Park',
   language: 'en',
   location: 'Chennai, Tamil Nadu',
+  registeredDate: '2026-08-15',
+  accountStatus: 'Active',
+  lastLogin: '2026-08-30 09:14 AM',
+  preferredLanguage: 'English',
+  password: 'SmartAssist@2026',
 }
+
+export const registeredCustomers: CustomerProfile[] = [
+  { ...mockCustomerProfile, password: 'SmartAssist@2026' },
+  {
+    name: 'Sweaty',
+    email: 'sweaty@example.com',
+    mobile: '6308307088',
+    address1: '4-46, Roddam',
+    address2: 'Near Temple Road',
+    city: 'Roddam',
+    state: 'Andhra Pradesh',
+    pincode: '515123',
+    landmark: 'Near Bus Stand',
+    language: 'te',
+    location: 'Roddam, Andhra Pradesh',
+    registeredDate: '2026-08-20',
+    accountStatus: 'Active',
+    lastLogin: '2026-08-29 17:42 PM',
+    preferredLanguage: 'Telugu',
+    password: 'SmartAssist@2026',
+  },
+]
 
 export const devices = [
   { id: 'camera', name: 'Security Camera', brand: 'Xiaomi', model: 'C300', location: 'Entrance', status: 'Registered', warranty: 'Active', icon: 'camera' },

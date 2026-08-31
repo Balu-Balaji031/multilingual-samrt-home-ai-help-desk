@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Activity, ArrowRight, Bell, Bot, Camera, Check, ChevronLeft, Eye, EyeOff, Headphones, Home, ImagePlus, Lightbulb, LockKeyhole, LogOut, Menu, MessageCircle, Mic, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Ticket, UserRound, Wrench, X, Zap } from 'lucide-react'
-import { login, register } from './api/authApi'
+import { findCustomerAccount, generateResetCode, login, register, updateCustomerPassword } from './api/authApi'
 import { activeTicket, completedTickets, devices, mockCustomerProfile as customer, recentActivity } from './mocks/customerData'
 import { addCustomerDevice, updateCustomerProfile } from './api/customerApi'
 import { createServiceTicket } from './api/ticketApi'
@@ -27,20 +27,84 @@ const roles: Record<UserRole, { label: string; title: string; description: strin
   admin: { label: 'Admin', title: 'Admin Portal', description: 'Manage users, technician verification, and platform operations.', icon: ShieldCheck },
 }
 
-function App() { return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/admin/login" element={<Login />} /><Route path="/register/:role" element={<Registration />} /><Route path="/verify/:role" element={<StatusPage />} /><Route path="/technician/verification" element={<StatusPage />} /><Route path="/customer/*" element={<CustomerPortal />} /><Route path="/forgot-password" element={<UtilityPage />} /><Route path="/reset-password" element={<UtilityPage reset />} /><Route path="/technician/*" element={<TechnicianPortal />} /><Route path="/admin/*" element={<AdminPortal />} /><Route path="/electrician/dashboard" element={<Navigate to="/technician/dashboard" replace />} /><Route path="/admin/dashboard" element={<Navigate to="/admin" replace />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter> }
+function App() { return <BrowserRouter><Routes><Route path="/login" element={<Login />} /><Route path="/admin/login" element={<Login />} /><Route path="/register/:role" element={<Registration />} /><Route path="/verify/:role" element={<StatusPage />} /><Route path="/technician/verification" element={<StatusPage />} /><Route path="/customer/*" element={<CustomerPortal />} /><Route path="/ai-troubleshooting-history" element={<Navigate to="/customer/ai-troubleshooting-history" replace />} /><Route path="/forgot-password" element={<UtilityPage />} /><Route path="/reset-password" element={<UtilityPage reset />} /><Route path="/technician/*" element={<TechnicianPortal />} /><Route path="/admin/customers" element={<AdminPortal defaultTab="customers" />} /><Route path="/admin/settings" element={<AdminPortal defaultTab="settings" />} /><Route path="/admin/*" element={<AdminPortal />} /><Route path="/electrician/dashboard" element={<Navigate to="/technician/dashboard" replace />} /><Route path="/admin/dashboard" element={<Navigate to="/admin" replace />} /><Route path="*" element={<Navigate to="/login" replace />} /></Routes></BrowserRouter> }
 
 function PublicShell({ children, back = false }: { children: ReactNode; back?: boolean }) { return <div className="portal"><header className="topbar"><Link className="brand" to="/login"><span className="brand-mark"><Sparkles size={18} /></span><span><strong>SmartAssist AI</strong><small>Smart Home Support Platform</small></span></Link>{back ? <Link className="back-link" to="/login"><ChevronLeft size={16} /> Back to login</Link> : <button className="support-link" type="button"><Headphones size={16} /> Help / Support</button>}</header>{children}<footer className="page-footer">2026 SmartAssist AI <span>•</span> Support for every connected home</footer></div> }
 
 function Login() { const location = useLocation(); const navigate = useNavigate(); const [role, setRole] = useState<UserRole>(location.pathname.startsWith('/admin') ? 'admin' : 'customer'); const [identifier, setIdentifier] = useState(''); const [password, setPassword] = useState(''); const [show, setShow] = useState(false); const [busy, setBusy] = useState(false); const [message, setMessage] = useState(''); const copy = roles[role]; const submit = async (event: FormEvent) => { event.preventDefault(); if (!identifier || !password) return setMessage('Enter your email or mobile number and password.'); setBusy(true); const result = await login(role, identifier, password); setBusy(false); navigate(result.role === 'electrician' ? '/technician/dashboard' : `/${result.role}/dashboard`) }; return <PublicShell><main className="auth-layout"><section className="intro-panel"><span className="eyebrow"><span className="pulse-dot" /> SMART HOME SUPPORT</span><h1>Diagnose smarter.<br /><em>Get help faster.</em></h1><p>One calm place to troubleshoot devices, connect with trusted technicians, and keep your home running beautifully.</p></section><section className="auth-card"><div className="card-heading"><span className="role-icon"><copy.icon size={21} /></span><div><h2>{copy.title}</h2><p>{copy.description}</p></div></div><div className="role-control" role="tablist" aria-label="Login as">{(['customer', 'electrician', 'admin'] as UserRole[]).map((item) => <button key={item} type="button" role="tab" aria-selected={role === item} className={role === item ? 'selected' : ''} onClick={() => { setRole(item); navigate(item === 'admin' ? '/admin/login' : '/login') }}>{roles[item].label}</button>)}</div><form className="auth-form" onSubmit={submit}><Field label="Email or Mobile Number" value={identifier} onChange={setIdentifier} placeholder="you@example.com" /><div className="field"><label htmlFor="login-password">Password</label><div className="password-wrap"><input id="login-password" type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" /><button className="icon-button" type="button" aria-label={show ? 'Hide password' : 'Show password'} onClick={() => setShow(!show)}>{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></div>{message && <p className="form-message" role="alert">{message}</p>}<div className="form-actions"><Link to="/forgot-password">Forgot password?</Link></div><button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Login'} {!busy && <ArrowRight size={17} />}</button></form>{role === 'admin' ? <div className="admin-note"><LockKeyhole size={16} /> Authorized administrators only. No public registration.</div> : <div className="register-prompt"><span>{role === 'customer' ? "Don't have an account?" : 'New to SmartAssist?'}</span><Link to={`/register/${role === 'electrician' ? 'technician' : role}`}>{role === 'customer' ? 'Create Customer Account' : 'Register as Technician'}</Link></div>}</section></main></PublicShell> }
 
-function Field({ label, value, onChange, placeholder, type = 'text', required = false }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string; required?: boolean }) { const id = label.toLowerCase().replaceAll(' ', '-'); return <div className="field"><label htmlFor={id}>{label}{required ? ' *' : ''}</label><input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required={required} /></div> }
+function Field({ label, value, onChange, placeholder, type = 'text', required = false, inputMode }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; type?: string; required?: boolean; inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'] }) { const id = label.toLowerCase().replaceAll(' ', '-'); return <div className="field"><label htmlFor={id}>{label}{required ? ' *' : ''}</label><input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} required={required} inputMode={inputMode} /></div> }
 
 function Registration() { const { role = 'customer' } = useParams<{ role: 'customer' | 'electrician' }>(); const isCustomer = role === 'customer'; const steps = isCustomer ? ['Account', 'Contact / Location', 'Preferences', 'Review', 'Verify'] : ['Account', 'Professional', 'Service Area', 'Review']; const [step, setStep] = useState(1); const [data, setData] = useState<Record<string, string>>({}); const [error, setError] = useState(''); const update = (key: string) => (value: string) => setData((current) => ({ ...current, [key]: value })); const submit = async (event: FormEvent) => { event.preventDefault(); if (step === 1 && (!data.name || !data.email || !data.mobile || !data.password || !data.confirm)) return setError('Please complete all required account fields.'); if (step === 1 && data.password !== data.confirm) return setError('Passwords do not match.'); setError(''); if (step < steps.length) return setStep(step + 1); await register(role); window.location.href = isCustomer ? '/verify/customer' : '/technician/verification' }; const f = (label: string, key: string, placeholder: string, type = 'text') => <Field label={label} value={data[key] || ''} onChange={update(key)} placeholder={placeholder} type={type} required />; return <PublicShell back><main className="registration-layout"><div className="registration-copy"><span className="eyebrow"><span className="pulse-dot" /> {isCustomer ? 'CUSTOMER ACCOUNT' : 'TECHNICIAN ONBOARDING'}</span><h1>{isCustomer ? <>Make your home<br /><em>easier to manage.</em></> : <>Put your expertise<br /><em>to work.</em></>}</h1><p>{isCustomer ? 'Create your account in a few simple steps. Add devices after you are in.' : 'Build your professional profile for future service assignments.'}</p></div><section className="form-card"><div className="stepper">{steps.map((label, index) => <div className={index + 1 <= step ? 'step active' : 'step'} key={label}><span>{index + 1}</span><small>{label}</small></div>)}</div><p className="mobile-step">Step {step} of {steps.length}</p><h2>{steps[step - 1]}</h2><form className="auth-form" onSubmit={submit}>{step === 1 && <>{f('Full Name', 'name', 'Your full name')}{f('Email Address', 'email', 'you@example.com', 'email')}{f('Mobile Number', 'mobile', '+91 00000 00000', 'tel')}{f('Password', 'password', 'At least 8 characters', 'password')}{f('Confirm Password', 'confirm', 'Repeat your password', 'password')}</>}{isCustomer && step === 2 && <>{f('Address Line 1', 'address1', 'House number and street')}{f('Address Line 2', 'address2', 'Optional')}{f('City', 'city', 'Your city')}{f('State', 'state', 'Your state')}{f('Pincode', 'pincode', '6-digit pincode')}</>}{isCustomer && step === 3 && <fieldset className="choice-group"><legend>Preferred Language</legend>{[['en', 'English'], ['ta', 'Tamil'], ['te', 'Telugu']].map(([value, label]) => <label className="choice" key={value}><input type="radio" name="language" checked={data.language === value} onChange={() => update('language')(value)} />{label}</label>)}</fieldset>}{isCustomer && step === 4 && <Review label="Account" value={`${data.name} · ${data.email}`} />}{!isCustomer && step === 2 && <>{f('Years of Experience', 'experience', 'e.g. 8', 'number')}{f('Primary Specialization', 'specialization', 'Smart home systems')}<fieldset className="choice-group"><legend>Service Categories and Languages</legend>{['Smart Home Devices', 'Security Cameras', 'Smart Lighting', 'English', 'Tamil', 'Telugu'].map((label) => <label className="choice" key={label}><input type="checkbox" />{label}</label>)}</fieldset></>}{!isCustomer && step === 3 && <>{f('Service City', 'city', 'Your city')}{f('State', 'state', 'Your state')}{f('Service Pincodes', 'pincodes', 'e.g. 600001')}{f('Service Radius', 'radius', '25 km')}<div className="time-row">{f('Working Hours Start', 'start', '09:00 AM')}{f('Working Hours End', 'end', '06:00 PM')}</div></>}{!isCustomer && step === 4 && <><Review label="Personal" value={`${data.name} · ${data.email}`} /><Review label="Professional" value={`${data.experience || '-'} years · ${data.specialization || '-'}`} /><Review label="Service Area" value={`${data.city || '-'} · ${data.radius || '25 km'}`} /></>}{error && <p className="form-message" role="alert">{error}</p>}<button className="primary-button">{step === steps.length ? (isCustomer ? 'Create Account' : 'Submit Application') : 'Continue'} <ArrowRight size={17} /></button></form><p className="login-hint">Already have an account? <Link to="/login">Login</Link></p></section></main></PublicShell> }
 
 function Review({ label, value }: { label: string; value: string }) { return <div className="review-item"><span>{label}</span><strong>{value || 'Not provided'}</strong></div> }
 
-const navItems = [{ path: '/customer/dashboard', label: 'Dashboard', icon: Home }, { path: '/customer/devices', label: 'My Devices', icon: Camera }, { path: '/customer/ai', label: 'AI Assistant', icon: Bot }, { path: '/customer/tickets', label: 'My Tickets', icon: Ticket }, { path: '/customer/notifications', label: 'Notifications', icon: Bell }]
-function CustomerPortal() { return <CustomerShell><Routes><Route index element={<Navigate to="dashboard" replace />} /><Route path="dashboard" element={<Dashboard />} /><Route path="devices" element={<Devices />} /><Route path="devices/:id" element={<DeviceDetails />} /><Route path="add-device" element={<AddDevice />} /><Route path="ai" element={<AiAssistant />} /><Route path="tickets" element={<Tickets />} /><Route path="tickets/:id" element={<TicketDetails />} /><Route path="notifications" element={<Notifications />} /><Route path="profile" element={<Profile />} /><Route path="settings" element={<SettingsPage />} /></Routes></CustomerShell> }
+type AiHistoryStatus = 'resolved' | 'escalated'
+
+type AiHistoryConversationEntry = { speaker: 'Customer' | 'AI Assistant'; text: string }
+
+type AiHistorySession = {
+  id: string
+  device: string
+  brand: string
+  location: string
+  problem: string
+  date: string
+  status: AiHistoryStatus
+  conversation: AiHistoryConversationEntry[]
+  troubleshootingPerformed: string[]
+  result: string
+  ticketId?: string
+}
+
+const aiTroubleshootingHistory: AiHistorySession[] = [
+  {
+    id: 'AI-HT-001',
+    device: 'Smart Security Camera',
+    brand: 'Xiaomi',
+    location: 'Entrance',
+    problem: 'Camera is not powering on',
+    date: 'Aug 30, 2026',
+    status: 'escalated',
+    ticketId: activeTicket.id,
+    conversation: [
+      { speaker: 'Customer', text: 'My camera is not turning on.' },
+      { speaker: 'AI Assistant', text: "Let's check a few things first. Please check whether the camera is receiving power." },
+      { speaker: 'Customer', text: 'I checked the power connection.' },
+      { speaker: 'AI Assistant', text: 'Please check whether the status LED is on.' },
+      { speaker: 'Customer', text: 'There is no light.' },
+      { speaker: 'AI Assistant', text: 'Please try restarting the device.' },
+      { speaker: 'Customer', text: "I tried restarting it but it still doesn't work." },
+      { speaker: 'AI Assistant', text: 'The issue may require professional assistance.' },
+    ],
+    troubleshootingPerformed: ['Power connection checked', 'Status LED checked', 'Device restarted'],
+    result: 'Problem was not resolved.',
+  },
+  {
+    id: 'AI-HT-002',
+    device: 'Smart AC',
+    brand: 'LG',
+    location: 'Living Room',
+    problem: 'AC is not cooling properly',
+    date: 'Aug 25, 2026',
+    status: 'resolved',
+    conversation: [
+      { speaker: 'Customer', text: 'The AC is not cooling the room properly.' },
+      { speaker: 'AI Assistant', text: 'I can help with that. Please confirm the temperature setting and airflow.' },
+      { speaker: 'Customer', text: 'The temperature is set to 20°C and the airflow is normal.' },
+      { speaker: 'AI Assistant', text: 'Please clean the filter and check if the compressor is running.' },
+      { speaker: 'Customer', text: 'The filter was cleaned and the compressor is working.' },
+      { speaker: 'AI Assistant', text: 'That usually points to a low refrigerant level or airflow restriction. Please restart the unit and check again.' },
+      { speaker: 'Customer', text: 'I restarted it and the cooling is back to normal.' },
+      { speaker: 'AI Assistant', text: 'Great — the issue is resolved.' },
+    ],
+    troubleshootingPerformed: ['Temperature settings checked', 'Airflow checked', 'Filter cleaned', 'Restart performed'],
+    result: 'Problem resolved by AI guidance.',
+  },
+]
+
+const navItems = [{ path: '/customer/dashboard', label: 'Dashboard', icon: Home }, { path: '/customer/devices', label: 'My Devices', icon: Camera }, { path: '/customer/ai', label: 'AI Assistant', icon: Bot }, { path: '/customer/ai-troubleshooting-history', label: 'AI Troubleshooting History', icon: MessageCircle }, { path: '/customer/tickets', label: 'My Tickets', icon: Ticket }, { path: '/customer/notifications', label: 'Notifications', icon: Bell }]
+function CustomerPortal() { return <CustomerShell><Routes><Route index element={<Navigate to="dashboard" replace />} /><Route path="dashboard" element={<Dashboard />} /><Route path="devices" element={<Devices />} /><Route path="devices/:id" element={<DeviceDetails />} /><Route path="add-device" element={<AddDevice />} /><Route path="ai" element={<AiAssistant />} /><Route path="ai-troubleshooting-history" element={<AiTroubleshootingHistoryPage />} /><Route path="tickets" element={<Tickets />} /><Route path="tickets/:id" element={<TicketDetails />} /><Route path="notifications" element={<Notifications />} /><Route path="profile" element={<Profile />} /><Route path="settings" element={<SettingsPage />} /></Routes></CustomerShell> }
 function CustomerShell({ children }: { children: ReactNode }) { const location = useLocation(); const [open, setOpen] = useState(false); return <div className="customer-app"><aside className={open ? 'customer-sidebar open' : 'customer-sidebar'}><div className="customer-brand"><span className="brand-mark"><Sparkles size={17} /></span><span><strong>SmartAssist</strong><small>Smart Home Support</small></span></div><nav aria-label="Main navigation">{navItems.map(({ path, label, icon: Icon }) => <Link className={location.pathname.startsWith(path) ? 'customer-nav active' : 'customer-nav'} to={path} key={path} onClick={() => setOpen(false)}><Icon size={18} />{label}</Link>)}</nav><div className="sidebar-divider" /><Link className="customer-nav" to="/customer/profile"><UserRound size={18} />Profile</Link><Link className="customer-nav" to="/customer/settings"><Settings size={18} />Settings</Link><div className="sidebar-user"><span className="avatar">RX</span><span><strong>{customer.name}</strong><small>{customer.email}</small></span></div><Link className="logout-link" to="/login"><LogOut size={16} />Log out</Link></aside><div className="customer-main"><header className="customer-header"><button className="menu-button" onClick={() => setOpen(!open)} aria-label="Open navigation">{open ? <X size={20} /> : <Menu size={20} />}</button><div><span className="header-kicker">CUSTOMER PORTAL</span><h1>{navItems.find((item) => location.pathname.startsWith(item.path))?.label || 'Account'}</h1></div><div className="header-actions"><Link className="header-icon" to="/customer/notifications"><Bell size={19} /><span>2</span></Link><Link className="header-avatar" to="/customer/profile">RX</Link></div></header><div className="customer-content">{children}</div></div><nav className="mobile-nav">{navItems.map(({ path, label, icon: Icon }) => <Link className={location.pathname.startsWith(path) ? 'active' : ''} to={path} key={path}><Icon size={18} /><small>{label === 'My Devices' ? 'Devices' : label === 'AI Assistant' ? 'AI' : label.replace('My ', '')}</small></Link>)}</nav></div> }
 
 function PageIntro({ kicker, title, description, action, children }: { kicker: string; title: string; description: string; action?: ReactNode; children: ReactNode }) { const aiPage = window.location.pathname === '/customer/ai'; return <div className="page-intro"><div className="page-title"><div><span className="section-kicker">{kicker}</span><h2>{title}</h2><p>{description}</p></div>{action}</div>{children}{aiPage && <AiTicketLauncher />}</div> }
@@ -65,6 +129,151 @@ function AddDevice() {
 function fieldFor(label: string, value: string, onChange: (value: string) => void, placeholder: string) { return <Field label={label} value={value} onChange={onChange} placeholder={placeholder} required={label !== 'Model (optional)'} /> }
 
 function AiAssistant() { const selectedId = new URLSearchParams(window.location.search).get('device'); const selected = devices.find((item) => item.id === selectedId); const [device, setDevice] = useState(selected); const [language, setLanguage] = useState('English'); const [chat, setChat] = useState(false); const [message, setMessage] = useState(''); const send = () => { if (message.trim()) { setChat(true); setMessage('') } }; if (!chat) return <PageIntro kicker="AI ASSISTANT" title="Troubleshoot with SmartAssist" description="Start with a device. Your conversation stays with the support request if you need professional help."><section className="ai-entry"><div className="ai-entry-icon"><Bot size={28} /></div><h3>{device ? `${device.name} selected` : 'Which device needs help?'}</h3><p>{device ? `${device.brand} · ${device.location}` : 'Choose from your registered devices.'}</p>{!device && <div className="device-select-grid">{devices.map((item) => <button key={item.id} onClick={() => setDevice(item)}><Camera size={20} /><span><strong>{item.name}</strong><small>{item.brand} · {item.location}</small></span><ArrowRight size={15} /></button>)}</div>}{device && <><div className="language-options"><span>Choose a support language</span>{['English', 'Tamil', 'Telugu'].map((item) => <button className={language === item ? 'active' : ''} key={item} onClick={() => setLanguage(item)}>{item}</button>)}</div><button className="primary-button start-ai" onClick={() => setChat(true)}><Bot size={17} /> Start Troubleshooting</button></>}</section></PageIntro>; return <PageIntro kicker="AI ASSISTANT" title="SmartAssist AI" description={`${device?.name || 'Device'} · ${device?.brand || ''}`}><section className="chat-panel"><div className="diagnosis-progress"><span className="done">Device identified</span><span className="done">Problem understood</span><span className="current">Basic checks</span><span>Finding cause</span></div><div className="chat-messages"><div className="ai-message"><Bot size={16} /><p>I can help with your {device?.name.toLowerCase()}. What is happening?</p></div><div className="user-message"><p>It is powered on, but I cannot see the video.</p></div><div className="ai-message"><Bot size={16} /><p>Is the device connected to your Wi-Fi right now?</p></div></div><div className="chat-input"><button type="button" aria-label="Add image"><ImagePlus size={19} /></button><input value={message} onChange={(event) => setMessage(event.target.value)} onKeyDown={(event) => event.key === 'Enter' && send()} placeholder="Describe what you are seeing..." /><button type="button" aria-label="Record voice"><Mic size={19} /></button><button className="send-button" type="button" aria-label="Send message" onClick={send}><ArrowRight size={18} /></button></div><p className="chat-note"><Sparkles size={13} /> Clear, actionable guidance. Professional help is available when physical inspection is needed.</p></section></PageIntro> }
+function AiTroubleshootingHistoryPage() {
+  const navigate = useNavigate()
+  const [filter, setFilter] = useState<'all' | 'resolved' | 'escalated'>('all')
+  const [selectedSession, setSelectedSession] = useState<AiHistorySession | null>(null)
+
+  const visibleSessions = aiTroubleshootingHistory.filter((session) => filter === 'all' || session.status === filter)
+
+  return (
+    <PageIntro kicker="AI SUPPORT" title="AI Troubleshooting History" description="View your previous AI troubleshooting conversations and support history.">
+      <div className="ai-history-filters" role="tablist" aria-label="AI troubleshooting history filters">
+        {(['all', 'resolved', 'escalated'] as const).map((option) => (
+          <button
+            key={option}
+            type="button"
+            className={filter === option ? 'secondary-button ai-history-filter active' : 'secondary-button ai-history-filter'}
+            onClick={() => setFilter(option)}
+          >
+            {option === 'all' ? 'All' : option === 'resolved' ? 'Resolved' : 'Escalated'}
+          </button>
+        ))}
+      </div>
+
+      {visibleSessions.length === 0 ? (
+        <section className="content-panel empty-state-panel">
+          <h3>No troubleshooting sessions yet.</h3>
+          <p>Start a conversation with SmartAssist to troubleshoot your smart-home devices.</p>
+          <button type="button" className="primary-button" onClick={() => navigate('/customer/ai')}>
+            <Bot size={16} /> Start AI Troubleshooting
+          </button>
+        </section>
+      ) : (
+        <div className="ai-history-list">
+          {visibleSessions.map((session) => (
+            <article className="content-panel ai-history-card" key={session.id}>
+              <div className="ai-history-header">
+                <div className="ai-history-device">
+                  <span className="device-badge camera"><Camera size={22} /></span>
+                  <div>
+                    <h3>{session.device}</h3>
+                    <p>{session.brand} · {session.location}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ai-history-body">
+                <span className="history-label">Problem</span>
+                <p>{session.problem}</p>
+
+                <div className="ai-history-meta-row">
+                  <span>{session.date}</span>
+                  <span className={session.status === 'resolved' ? 'status-badge success' : 'status-badge warning'}>
+                    {session.status === 'resolved' ? 'Resolved by AI' : 'Escalated to Service Ticket'}
+                  </span>
+                </div>
+
+                <button type="button" className="text-button" onClick={() => setSelectedSession(session)}>
+                  View Conversation <ArrowRight size={14} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {selectedSession && (
+        <div className="ticket-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="history-session-title">
+          <div className="ticket-modal review-application-modal">
+            <button type="button" className="modal-close" aria-label="Close" onClick={() => setSelectedSession(null)}>
+              <X size={18} />
+            </button>
+
+            <div className="review-modal-header">
+              <span className="ai-entry-icon"><Bot size={24} /></span>
+              <div>
+                <h2 id="history-session-title">{selectedSession.device}</h2>
+                <p>{selectedSession.brand} · {selectedSession.location}</p>
+              </div>
+            </div>
+
+            <div className="review-modal-content">
+              <section className="review-section">
+                <h3>Problem</h3>
+                <div className="review-grid">
+                  <div className="review-item full-width">
+                    <span>Issue</span>
+                    <strong>{selectedSession.problem}</strong>
+                  </div>
+                </div>
+              </section>
+
+              <section className="review-section">
+                <h3>Conversation</h3>
+                <div className="ai-history-conversation">
+                  {selectedSession.conversation.map((entry, index) => (
+                    <div key={`${selectedSession.id}-${entry.speaker}-${index}`} className={entry.speaker === 'Customer' ? 'ai-history-message customer' : 'ai-history-message ai'}>
+                      <span>{entry.speaker}</span>
+                      <p>{entry.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="review-section">
+                <h3>Troubleshooting Summary</h3>
+                <div className="review-grid">
+                  <div className="review-item">
+                    <span>Problem</span>
+                    <strong>{selectedSession.problem}</strong>
+                  </div>
+                  <div className="review-item">
+                    <span>Status</span>
+                    <strong>{selectedSession.status === 'resolved' ? 'Resolved by AI' : 'Escalated to Service Ticket'}</strong>
+                  </div>
+                  <div className="review-item full-width">
+                    <span>Troubleshooting performed</span>
+                    <strong>{selectedSession.troubleshootingPerformed.join(' · ')}</strong>
+                  </div>
+                  <div className="review-item full-width">
+                    <span>Result</span>
+                    <strong>{selectedSession.result}</strong>
+                  </div>
+                  {selectedSession.ticketId && (
+                    <div className="review-item full-width">
+                      <span>Ticket ID</span>
+                      <strong>{selectedSession.ticketId}</strong>
+                    </div>
+                  )}
+                </div>
+              </section>
+            </div>
+
+            {selectedSession.ticketId && (
+              <div className="modal-actions">
+                <button type="button" className="primary-button" onClick={() => navigate(`/customer/tickets/${selectedSession.ticketId}`)}>
+                  View Ticket
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </PageIntro>
+  )
+}
+
 function Tickets() { const navigate = useNavigate(); return <PageIntro kicker="SERVICE HISTORY" title="My Tickets" description="Follow each request from diagnosis to completed repair."><div className="ticket-tabs"><button className="active">Active (1)</button><button>Completed ({completedTickets.length})</button></div><article className="ticket-card active-ticket" onClick={() => navigate(`/customer/tickets/${activeTicket.id}`)}><div className="ticket-card-top"><span>{activeTicket.id}</span><span className="status-badge warning">On the Way</span></div><h3>{activeTicket.device}</h3><p>{activeTicket.issue}</p><div className="ticket-details"><span>Technician: <strong>{activeTicket.technician}</strong></span><span>ETA: <strong>{activeTicket.eta}</strong></span></div><button className="text-button">View Ticket <ArrowRight size={14} /></button></article><h3 className="subsection-title">Completed</h3>{completedTickets.map((ticket) => <article className="ticket-card" key={ticket.id}><div className="ticket-card-top"><span>{ticket.id}</span><span className="status-badge success">Completed</span></div><h3>{ticket.device}</h3><p>{ticket.issue}</p><div className="ticket-details"><span>Technician: <strong>{ticket.technician}</strong></span><span>{ticket.date}</span></div></article>)}</PageIntro> }
 function TicketDetails() { return <PageIntro kicker="MY TICKETS" title={activeTicket.id} description={`${activeTicket.device} · ${activeTicket.issue}`}><div className="ticket-status-head"><span className="status-badge warning">Technician On the Way</span><span>Priority: Medium</span><span>Created: Aug 28, 2026</span></div><section className="content-panel"><h3>Service timeline</h3><div className="service-timeline">{['Ticket Created', 'AI Diagnosis Completed', 'Technician Assigned', 'Technician Accepted', 'On the Way', 'Arrived', 'Repair Started', 'Completed'].map((item, index) => <div className={index < 4 ? 'timeline-row complete' : index === 4 ? 'timeline-row current' : 'timeline-row'} key={item}><span>{index < 4 ? <Check size={13} /> : index === 4 ? '●' : '○'}</span>{item}</div>)}</div></section><section className="technician-card"><span className="avatar large">MK</span><div><span className="status-badge success">Verified Technician</span><h3>{activeTicket.technician}</h3><p>Smart Home Specialist · {activeTicket.rating} rating</p></div><div className="eta"><small>ETA</small><strong>{activeTicket.eta}</strong></div></section></PageIntro> }
 function Notifications() {
@@ -82,7 +291,7 @@ function Profile() {
   const validate = () => { const next: Record<string, string> = {}; if (!draft.name.trim() || !/^[A-Za-zÀ-ÿ]+(?:[ '-][A-Za-zÀ-ÿ]+)+$/.test(draft.name.trim())) next.name = 'Enter your full name.'; if (!/^\S+@\S+\.\S+$/.test(draft.email)) next.email = 'Enter a valid email address.'; if (!/^\+?[0-9\s-]{10,15}$/.test(draft.mobile)) next.mobile = 'Enter a valid mobile number.'; if (!/^\d{6}$/.test(draft.pincode)) next.pincode = 'Enter a valid 6-digit Indian pincode.'; setErrors(next); return Object.keys(next).length === 0 }
   const save = async (event: FormEvent) => { event.preventDefault(); setSaved(false); if (!navigator.onLine) return setErrors({ offline: "You're offline. Reconnect to save your changes." }); if (!validate()) return; setSaving(true); await updateCustomerProfile(draft); setSaving(false); setEditing(false); setSaved(true) }
   const displayLanguage = draft.language === 'ta' ? 'Tamil' : draft.language === 'te' ? 'Telugu' : 'English'
-  return <PageIntro kicker="ACCOUNT" title="Profile" description="Your contact and service location details."><section className="content-panel profile-panel profile-editor">{saved && <p className="profile-success" role="status">Profile updated successfully.</p>}{editing ? <form className="portal-form" onSubmit={save}><ProfileField label="Full Name" value={draft.name} onChange={update('name')} error={errors.name} required /><ProfileField label="Email Address" value={draft.email} onChange={update('email')} error={errors.email} type="email" required />{draft.email !== customer.email && <p className="field-help">Changing your email may require account re-verification.</p>}<ProfileField label="Mobile Number" value={draft.mobile} onChange={update('mobile')} error={errors.mobile} type="tel" required /><ProfileField label="Address Line 1" value={draft.address1} onChange={update('address1')} required /><ProfileField label="Address Line 2" value={draft.address2} onChange={update('address2')} /><div className="form-row"><ProfileField label="City" value={draft.city} onChange={update('city')} required /><ProfileField label="State" value={draft.state} onChange={update('state')} required /></div><ProfileField label="Pincode" value={draft.pincode} onChange={update('pincode')} error={errors.pincode} inputMode="numeric" required /><ProfileField label="Landmark" value={draft.landmark} onChange={update('landmark')} /><div className="field"><label htmlFor="profile-language">Preferred Language</label><select id="profile-language" value={draft.language} onChange={(event) => setDraft((current) => ({ ...current, language: event.target.value as CustomerProfile['language'] }))}><option value="en">English</option><option value="ta">Tamil</option><option value="te">Telugu</option></select></div>{errors.offline && <p className="form-message" role="alert">{errors.offline}</p>}<div className="profile-actions"><button className="secondary-button" type="button" onClick={cancel}>Cancel</button><button className="primary-button" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button></div></form> : <><span className="avatar profile-avatar">RX</span><h3>{customer.name}</h3><p>{customer.email}</p><div className="info-grid"><Review label="Mobile" value={customer.mobile} /><Review label="Address" value={`${customer.address1}${customer.address2 ? `, ${customer.address2}` : ''}`} /><Review label="Location" value={`${customer.city}, ${customer.state} ${customer.pincode}`} /><Review label="Language" value={displayLanguage} /></div><button className="secondary-button" onClick={beginEdit}>Edit Profile</button></>}</section></PageIntro>
+  return <PageIntro kicker="ACCOUNT" title="Profile" description="Your contact and service location details."><section className="content-panel profile-panel profile-editor">{saved && <p className="profile-success" role="status">Profile updated successfully.</p>}{editing ? <form className="portal-form" onSubmit={save}><ProfileField label="Full Name" value={draft.name} onChange={update('name')} error={errors.name} required /><ProfileField label="Email Address" value={draft.email} onChange={update('email')} error={errors.email} type="email" required />{draft.email !== customer.email && <p className="field-help">Changing your email may require account re-verification.</p>}<ProfileField label="Mobile Number" value={draft.mobile} onChange={update('mobile')} error={errors.mobile} type="tel" required /><ProfileField label="Address Line 1" value={draft.address1} onChange={update('address1')} required /><ProfileField label="Address Line 2" value={draft.address2 ?? ''} onChange={update('address2')} /><div className="form-row"><ProfileField label="City" value={draft.city} onChange={update('city')} required /><ProfileField label="State" value={draft.state} onChange={update('state')} required /></div><ProfileField label="Pincode" value={draft.pincode} onChange={update('pincode')} error={errors.pincode} inputMode="numeric" required /><ProfileField label="Landmark" value={draft.landmark} onChange={update('landmark')} /><div className="field"><label htmlFor="profile-language">Preferred Language</label><select id="profile-language" value={draft.language} onChange={(event) => setDraft((current) => ({ ...current, language: event.target.value as CustomerProfile['language'] }))}><option value="en">English</option><option value="ta">Tamil</option><option value="te">Telugu</option></select></div>{errors.offline && <p className="form-message" role="alert">{errors.offline}</p>}<div className="profile-actions"><button className="secondary-button" type="button" onClick={cancel}>Cancel</button><button className="primary-button" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button></div></form> : <><span className="avatar profile-avatar">RX</span><h3>{customer.name}</h3><p>{customer.email}</p><div className="info-grid"><Review label="Mobile" value={customer.mobile} /><Review label="Address" value={`${customer.address1}${customer.address2 ? `, ${customer.address2}` : ''}`} /><Review label="Location" value={`${customer.city}, ${customer.state} ${customer.pincode}`} /><Review label="Language" value={displayLanguage} /></div><button className="secondary-button" onClick={beginEdit}>Edit Profile</button></>}</section></PageIntro>
 }
 
 function ProfileField({ label, value, onChange, error, type = 'text', required = false, inputMode }: { label: string; value: string; onChange: (value: string) => void; error?: string; type?: string; required?: boolean; inputMode?: 'numeric' }) { const id = `profile-${label.toLowerCase().replaceAll(' ', '-')}`; return <div className="field"><label htmlFor={id}>{label}{required ? ' *' : ''}</label><input id={id} type={type} value={value} onChange={(event) => onChange(event.target.value)} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} inputMode={inputMode} />{error && <small className="field-error" id={`${id}-error`}>{error}</small>}</div> }
@@ -106,7 +315,148 @@ function SettingsRow({ label, detail, onClick, danger = false }: { label: string
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) { return <div className="settings-row"><span><strong>{label}</strong></span><button className={checked ? 'toggle on' : 'toggle'} type="button" role="switch" aria-checked={checked} aria-label={`${label} ${checked ? 'on' : 'off'}`} onClick={onChange}><span /></button></div> }
 function SelectRow({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) { return <div className="settings-row"><span><strong>{label}</strong></span><select value={value} aria-label={label} onChange={(event) => onChange(event.target.value)}>{options.map((option) => <option key={option}>{option}</option>)}</select></div> }
 function StatusPage() { const technician = window.location.pathname.includes('technician'); return <PublicShell><main className="status-layout"><section className="status-card"><div className="success-mark"><Check size={28} /></div><span className="eyebrow">APPLICATION CREATED</span><h1>{technician ? 'Your technician application is created.' : 'Account created successfully.'}</h1><p>{technician ? 'Your profile is ready for the next project phase.' : 'Welcome to SmartAssist AI. Your account is ready.'}</p><Link className="primary-button" to={technician ? '/technician/dashboard' : '/customer/dashboard'}>{technician ? 'Go to Technician Dashboard' : 'Go to Customer Dashboard'} <ArrowRight size={17} /></Link></section></main></PublicShell> }
-function UtilityPage({ reset = false }: { reset?: boolean }) { return <PublicShell back><main className="status-layout"><section className="status-card"><div className="role-icon"><LockKeyhole size={21} /></div><h1>{reset ? 'Create a new password' : 'Forgot password?'}</h1><p>{reset ? 'Choose a new password for your account.' : "If an account exists, we'll send reset instructions."}</p><form className="auth-form">{reset ? <><Field label="New Password" value="" onChange={() => undefined} placeholder="At least 8 characters" type="password" /><Field label="Confirm Password" value="" onChange={() => undefined} placeholder="Repeat your password" type="password" /></> : <Field label="Email or Mobile Number" value="" onChange={() => undefined} placeholder="you@example.com" />}<button className="primary-button">{reset ? 'Reset Password' : 'Send Reset Code'} <ArrowRight size={17} /></button></form><Link className="center-link" to="/login">Return to login</Link></section></main></PublicShell> }
+function UtilityPage({ reset = false }: { reset?: boolean }) {
+  const navigate = useNavigate();
+  const [identifier, setIdentifier] = useState('');
+  const [otp, setOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [message, setMessage] = useState('');
+  const [status, setStatus] = useState<'request' | 'otp' | 'reset' | 'success'>('request');
+  const [generatedCode, setGeneratedCode] = useState('');
+  const [accountEmail, setAccountEmail] = useState('');
+
+  const beginReset = (event: FormEvent) => {
+    event.preventDefault();
+    const expected = identifier.trim();
+    if (!expected) return setMessage('Enter your email or mobile number to continue.');
+
+    const account = findCustomerAccount(expected);
+    if (!account) return setMessage('No customer account matches this email or mobile number.');
+
+    const code = generateResetCode();
+    setGeneratedCode(code);
+    setAccountEmail(account.email);
+    setStatus('otp');
+    setMessage(`A security code was generated for ${accountEmail || account.email}. Demo code: ${code}`);
+  };
+
+  const verifyCode = (event: FormEvent) => {
+    event.preventDefault();
+    if (!otp.trim()) return setMessage('Enter the 6-digit verification code.');
+    if (otp.trim() !== generatedCode) return setMessage('The verification code is incorrect. Please try again.');
+    setStatus('reset');
+    setMessage('Verification successful. Choose a new password.');
+  };
+
+  const submitNewPassword = (event: FormEvent) => {
+    event.preventDefault();
+
+    if (!newPassword || !confirmPassword) return setMessage('Please enter both password fields.');
+    if (newPassword.length < 8) return setMessage('Password must be at least 8 characters long.');
+    if (newPassword !== confirmPassword) return setMessage('Passwords do not match.');
+
+    if (!identifier.trim()) return setMessage('Your account identifier is missing.');
+
+    const updated = updateCustomerPassword(identifier, newPassword);
+    if (!updated) return setMessage('Unable to update the password for this account.');
+
+    setStatus('success');
+    setMessage('Your password has been updated successfully.');
+    setTimeout(() => navigate('/login'), 1200);
+  };
+
+  const heading = reset || status === 'reset' ? 'Reset your password' : 'Forgot password?';
+  const description = status === 'otp'
+    ? 'Enter the 6-digit code to verify your account.'
+    : status === 'reset'
+      ? 'Choose a strong password for your account.'
+      : reset
+        ? 'Choose a new password for your account.'
+        : "If an account exists, we'll send a reset code to your email or mobile.";
+
+  return (
+    <PublicShell back>
+      <main className="status-layout">
+        <section className="status-card">
+          <div className="role-icon"><LockKeyhole size={21} /></div>
+          <h1>{heading}</h1>
+          <p>{description}</p>
+
+          {status === 'request' && (
+            <form className="auth-form" onSubmit={beginReset}>
+              <Field
+                label="Email or Mobile Number"
+                value={identifier}
+                onChange={setIdentifier}
+                placeholder="you@example.com"
+                required
+              />
+              <button className="primary-button" type="submit">
+                Send Reset Code <ArrowRight size={17} />
+              </button>
+            </form>
+          )}
+
+          {status === 'otp' && (
+            <form className="auth-form" onSubmit={verifyCode}>
+              <Field
+                label="Verification Code"
+                value={otp}
+                onChange={setOtp}
+                placeholder="Enter 6-digit code"
+                inputMode="numeric"
+                required
+              />
+              <button className="primary-button" type="submit">
+                Verify Code <ArrowRight size={17} />
+              </button>
+            </form>
+          )}
+
+          {status === 'reset' && (
+            <form className="auth-form" onSubmit={submitNewPassword}>
+              <Field
+                label="New Password"
+                value={newPassword}
+                onChange={setNewPassword}
+                placeholder="At least 8 characters"
+                type="password"
+                required
+              />
+              <Field
+                label="Confirm Password"
+                value={confirmPassword}
+                onChange={setConfirmPassword}
+                placeholder="Repeat your password"
+                type="password"
+                required
+              />
+              <button className="primary-button" type="submit">
+                Reset Password <ArrowRight size={17} />
+              </button>
+            </form>
+          )}
+
+          {status === 'success' && (
+            <div className="auth-form">
+              <div className="success-mark" style={{ margin: '0 auto 1rem' }}>
+                <Check size={28} />
+              </div>
+              <p className="form-message" role="status">{message}</p>
+            </div>
+          )}
+
+          {message && status !== 'success' && (
+            <p className="form-message" role="alert">{message}</p>
+          )}
+
+          <Link className="center-link" to="/login">Return to login</Link>
+        </section>
+      </main>
+    </PublicShell>
+  )
+}
 
 function TechnicianPortal() {
   return (

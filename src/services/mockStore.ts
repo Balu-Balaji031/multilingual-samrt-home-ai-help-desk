@@ -509,6 +509,7 @@ export const mockStore = {
       application: null,
       assessmentCenters: defaultCenters,
       tickets: initialTickets,
+      technicianSettings: defaultTechnicianSettings,
     }
     saveState()
   },
