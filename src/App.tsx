@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { Activity, ArrowRight, Bell, Bot, Camera, Check, ChevronLeft, Eye, EyeOff, Headphones, Home, ImagePlus, Lightbulb, LockKeyhole, LogOut, Menu, MessageCircle, Mic, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Ticket, UserRound, Wrench, X, Zap } from 'lucide-react'
+import { Activity, ArrowRight, Bell, Bot, Calendar, Camera, Check, ChevronLeft, Eye, EyeOff, Headphones, Home, ImagePlus, Lightbulb, LockKeyhole, LogOut, Menu, MessageCircle, Mic, MoreHorizontal, Plus, Search, Settings, ShieldCheck, Sparkles, Ticket, User, UserRound, Wrench, X, Zap } from 'lucide-react'
 import { findCustomerAccount, generateResetCode, login, register, updateCustomerPassword } from './api/authApi'
 import { activeTicket, completedTickets, devices, mockCustomerProfile as customer, recentActivity } from './mocks/customerData'
 import { addCustomerDevice, updateCustomerProfile } from './api/customerApi'
@@ -303,10 +303,7 @@ function SettingsPage() {
     { title: 'Notifications', items: <><ToggleRow label="Service Updates" checked={toggles.service} onChange={() => toggle('service')} /><ToggleRow label="AI Updates" checked={toggles.ai} onChange={() => toggle('ai')} /><ToggleRow label="Account & Security Alerts" checked={toggles.account} onChange={() => toggle('account')} /><ToggleRow label="Email Notifications" checked={toggles.email} onChange={() => toggle('email')} /><ToggleRow label="Push Notifications" checked={toggles.push} onChange={() => toggle('push')} /></> },
     { title: 'Language & Preferences', items: <><SelectRow label="App Language" value={language} options={['English', 'Tamil', 'Telugu']} onChange={setLanguage} /><SelectRow label="Appearance" value={appearance} options={['Light', 'Dark', 'System']} onChange={setAppearance} /></> },
     { title: 'Security', items: <><SettingsRow label="Change Password" onClick={() => navigate('/reset-password')} /><SettingsRow label="Active Sessions" onClick={() => undefined} /><SettingsRow label="Sign Out Other Devices" onClick={() => undefined} /><SettingsRow label="Two-Factor Authentication" onClick={() => undefined} /></> },
-    { title: 'Privacy & Data', items: <><SettingsRow label="Privacy Policy" onClick={() => undefined} /><SettingsRow label="Terms of Service" onClick={() => undefined} /><SettingsRow label="Data Usage" onClick={() => undefined} /><SettingsRow label="Download My Data" onClick={() => undefined} /><SettingsRow label="Delete Account" danger onClick={() => undefined} /></> },
     { title: 'Service Preferences', items: <><SettingsRow label="Default Service Location" detail={customer.location} onClick={() => navigate('/customer/profile')} /><SettingsRow label="Preferred Service Time" detail="09:00 AM - 06:00 PM" onClick={() => undefined} /></> },
-    { title: 'Help & Support', items: <><SettingsRow label="Help Center" onClick={() => undefined} /><SettingsRow label="FAQ" onClick={() => undefined} /><SettingsRow label="Contact Support" onClick={() => undefined} /><SettingsRow label="Report a Problem" onClick={() => undefined} /><SettingsRow label="Give Feedback" onClick={() => undefined} /></> },
-    { title: 'About SmartAssist', items: <><SettingsRow label="Version" detail="1.0.0" /><SettingsRow label="Privacy Policy" onClick={() => undefined} /><SettingsRow label="Terms of Service" onClick={() => undefined} /></> },
   ];
   return <PageIntro kicker="ACCOUNT" title="Settings" description="Manage your account, preferences and security."><div className="settings-groups">{groups.map((group) => <section className="settings-group" key={group.title}><h3>{group.title}</h3><div className="settings-list">{group.items}</div></section>)}<Link className="logout-button" to="/login"><LogOut size={16} /> Log Out</Link></div></PageIntro>
 }
@@ -344,6 +341,14 @@ function UtilityPage({ reset = false }: { reset?: boolean }) {
   const verifyCode = (event: FormEvent) => {
     event.preventDefault();
     if (!otp.trim()) return setMessage('Enter the 6-digit verification code.');
+
+    // TEMPORARY DEVELOPMENT OTP - REMOVE BEFORE PRODUCTION
+    if (otp.trim() === '123456') {
+      setStatus('reset');
+      setMessage('Verification successful. Choose a new password.');
+      return;
+    }
+
     if (otp.trim() !== generatedCode) return setMessage('The verification code is incorrect. Please try again.');
     setStatus('reset');
     setMessage('Verification successful. Choose a new password.');
@@ -466,6 +471,7 @@ function TechnicianPortal() {
         <Route path="dashboard" element={<TechnicianDashboard />} />
         <Route path="jobs" element={<TechnicianJobsList />} />
         <Route path="jobs/:id" element={<TechnicianJobDetails />} />
+        <Route path="job-history" element={<TechnicianJobHistoryPage />} />
         <Route path="profile" element={<TechnicianProfilePage />} />
         <Route path="settings" element={<TechnicianSettingsPage />} />
         <Route path="*" element={<Navigate to="dashboard" replace />} />
@@ -510,6 +516,13 @@ function TechnicianShell({ children }: { children: ReactNode }) {
             All Jobs
             {pendingJobsCount > 0 && <span className="nav-count">{pendingJobsCount}</span>}
           </Link>
+          <Link
+            className={location.pathname.startsWith('/technician/job-history') ? 'technician-nav active' : 'technician-nav'}
+            to="/technician/job-history"
+          >
+            <Ticket size={18} />
+            Job History
+          </Link>
         </nav>
         <div className="sidebar-divider" />
         <Link
@@ -544,6 +557,94 @@ function TechnicianShell({ children }: { children: ReactNode }) {
         </header>
         <div className="technician-content">{children}</div>
       </main>
+    </div>
+  )
+}
+
+function TechnicianJobHistoryPage() {
+  const navigate = useNavigate()
+  const state = useMockStore()
+  const profile = state.technicianProfile
+  const myCompletedJobs = state.tickets.filter((ticket) => {
+    const isCurrentTechnician =
+      ticket.assignedTechnicianId === 'TECH-MK-01' ||
+      (ticket.assignedTechnicianName && ticket.assignedTechnicianName.toLowerCase() === profile.name.toLowerCase())
+
+    return isCurrentTechnician && ticket.status === 'COMPLETED'
+  })
+
+  return (
+    <div className="technician-dashboard all-jobs-page-wrapper">
+      <div className="technician-welcome jobs-page-header">
+        <div>
+          <span className="section-kicker">SERVICE COMPLETIONS</span>
+          <h1>Job History</h1>
+          <p>View the jobs you have successfully completed.</p>
+        </div>
+        <div className="technician-summary-card" style={{ minWidth: 120 }}>
+          <small>{myCompletedJobs.length} Completed</small>
+        </div>
+      </div>
+
+      {myCompletedJobs.length === 0 ? (
+        <section className="technician-panel jobs-empty">
+          <div className="empty-job-icon">
+            <Check size={24} />
+          </div>
+          <h2>No completed jobs yet.</h2>
+          <p>Completed jobs will appear here after you finish a service.</p>
+        </section>
+      ) : (
+        <div className="technician-jobs-grid">
+          {myCompletedJobs.map((ticket) => (
+            <article key={ticket.id} className="technician-job-card">
+              <div className="job-card-top">
+                <div>
+                  <span className="ticket-id-tag">
+                    <Ticket size={13} /> {ticket.id}
+                  </span>
+                  <h3>{ticket.deviceName}</h3>
+                </div>
+                <div className="job-card-badges">
+                  <span className="status-pill success">Completed</span>
+                </div>
+              </div>
+
+              <p className="job-issue-text"><em>Customer:</em> {ticket.customerName}</p>
+              <p className="job-issue-text"><em>Problem:</em> {ticket.problemDescription}</p>
+
+              <div className="job-card-meta-grid">
+                <div className="meta-cell">
+                  <Calendar size={13} />
+                  <span>{new Date(ticket.repairDetails?.completedAt || ticket.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                </div>
+                <div className="meta-cell">
+                  <User size={13} />
+                  <span>{ticket.customerName}</span>
+                </div>
+              </div>
+
+              <p className="job-issue-text">
+                <em>Resolution:</em> {ticket.repairDetails?.repairPerformed || 'Service completed successfully.'}
+              </p>
+
+              {ticket.customerRating !== null && ticket.customerRating !== undefined && (
+                <p className="job-issue-text"><em>Rating:</em> ★ {ticket.customerRating}</p>
+              )}
+
+              <div className="job-card-footer">
+                <button
+                  type="button"
+                  className="primary-button compact-button full-width-btn"
+                  onClick={() => navigate(`/technician/jobs/${ticket.id}`)}
+                >
+                  View Details <ArrowRight size={15} />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

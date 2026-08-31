@@ -140,6 +140,40 @@ const initialTickets: CustomerTicket[] = [
     },
     attachments: [],
   },
+  {
+    id: 'TKT-04556301',
+    deviceId: 'cam-03',
+    deviceName: 'Smart Security Camera',
+    deviceCategory: 'cctv & security',
+    brand: 'Xiaomi',
+    problemDescription: 'Security camera is not powering on',
+    customerName: 'Arun Kumar',
+    customerPhone: '+91 90000 00000',
+    customerAddress: '12 Marina Road, Chennai, Tamil Nadu 600001',
+    customerLocation: 'Chennai, Tamil Nadu',
+    customerLanguage: 'English',
+    priority: 'Medium',
+    createdAt: '2026-09-01T08:30:00Z',
+    assignedTechnicianId: 'TECH-MK-01',
+    assignedTechnicianName: 'Mark Kumar',
+    status: 'CREATED',
+    otp: '104582',
+    otpVerified: false,
+    aiTroubleshooting: {
+      problemDescription: 'Security camera is not powering on.',
+      troubleshootingSteps: [
+        'Checked adapter connection',
+        'Verified outlet power',
+        'Inspected camera power indicator',
+      ],
+      customerResponses: [
+        'Customer confirmed the camera has no power LED.',
+      ],
+      keyFindings: 'Power supply or internal camera board likely requires on-site diagnostics.',
+      escalationReason: 'Needs technician inspection and service repair.',
+    },
+    attachments: [],
+  },
 ]
 
 function getInitialState(): PortalStoreState {
@@ -444,7 +478,10 @@ export const mockStore = {
   verifyArrivalOtp(ticketId: string, enteredOtp: string): boolean {
     const ticket = currentState.tickets.find((t) => t.id === ticketId)
     if (!ticket) return false
-    if (ticket.otp.trim() === enteredOtp.trim()) {
+
+    // TEMPORARY DEVELOPMENT OTP - REMOVE BEFORE PRODUCTION
+    const isTemporaryDevOtp = enteredOtp.trim() === '123456'
+    if (isTemporaryDevOtp || ticket.otp.trim() === enteredOtp.trim()) {
       currentState = {
         ...currentState,
         tickets: currentState.tickets.map((t) =>
