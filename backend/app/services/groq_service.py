@@ -1,10 +1,13 @@
 from app.core.config import settings
-from groq import Groq
+from groq import AsyncGroq
 import json
 
 class GroqService:
     def __init__(self):
-        self.client = Groq(api_key=settings.GROQ_API_KEY or "DUMMY_KEY_TO_PREVENT_CRASH")
+        self.client = AsyncGroq(
+            api_key=settings.GROQ_API_KEY or "DUMMY_KEY_TO_PREVENT_CRASH",
+            timeout=30.0,
+        )
         self.model = "openai/gpt-oss-20b"
 
     async def generate_response(self, system_prompt: str, messages: list) -> dict:
@@ -14,7 +17,7 @@ class GroqService:
                 role = "user" if m["role"] == "user" else "assistant"
                 formatted_messages.append({"role": role, "content": m["content"]})
                 
-            response = self.client.chat.completions.create(
+            response = await self.client.chat.completions.create(
                 messages=formatted_messages,
                 model=self.model,
                 response_format={"type": "json_object"},

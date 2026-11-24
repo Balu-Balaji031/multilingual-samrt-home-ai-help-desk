@@ -4,22 +4,39 @@ import { useAuth } from '../../auth/context/AuthContext';
 import { deviceService } from '../../customer/services/device.service';
 import { aiService } from '../services/ai.service';
 import type { Device } from '../../customer/types/device';
+import type { SupportedLanguage } from '../types/ai';
 import { Button } from '../../../components/ui/Button';
 import { Input } from '../../../components/ui/Input';
 import { Bot, ChevronRight, MonitorSmartphone } from 'lucide-react';
 
+const savedLanguageCodes: Record<string, SupportedLanguage> = {
+  English: 'en',
+  Tamil: 'ta',
+  Telugu: 'te',
+  Hindi: 'hi',
+};
+
 export default function AIAssistant() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   
   const [devices, setDevices] = useState<Device[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
-  const [language, setLanguage] = useState('en');
+  const [manualLanguage, setManualLanguage] = useState<SupportedLanguage | null>(null);
+  const language = manualLanguage
+    ?? savedLanguageCodes[profile?.settings?.appLanguage || '']
+    ?? 'en';
   const [problem, setProblem] = useState('');
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState('');
+  const languages: { code: SupportedLanguage; label: string }[] = [
+    { code: 'en', label: 'English' },
+    { code: 'ta', label: 'தமிழ்' },
+    { code: 'te', label: 'తెలుగు' },
+    { code: 'hi', label: 'हिन्दी' },
+  ];
 
   useEffect(() => {
     const fetchDevices = async () => {
@@ -130,16 +147,12 @@ export default function AIAssistant() {
               <span className="w-6 h-6 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-sm mr-2">2</span>
               Select Language
             </h2>
-            <div className="flex gap-4">
-              {[
-                { code: 'en', label: 'English' },
-                { code: 'ta', label: 'தமிழ்' },
-                { code: 'te', label: 'తెలుగు' }
-              ].map(lang => (
+            <div className="flex flex-wrap gap-4">
+              {languages.map(lang => (
                 <button
                   key={lang.code}
                   type="button"
-                  onClick={() => setLanguage(lang.code)}
+                  onClick={() => setManualLanguage(lang.code)}
                   className={`px-4 py-2 border rounded-lg text-sm font-medium transition-all ${
                     language === lang.code
                       ? 'bg-blue-600 border-blue-600 text-white'

@@ -7,6 +7,9 @@ class SafetyService:
             "spark", "sparks", "smoke", "fire", "burning smell", "burnt smell",
             "electric shock", "exposed wire", "mains", "melt", "flame", "electrocute",
             "தீ", "புகை", "மின்சாரம் தாக்க", "విద్యుత్ షాక్", "పొగ", "మంట",
+            "चिंगारी", "चिंगारियां", "धुआँ", "धुआं", "आग", "जलने की गंध",
+            "जलने की बदबू", "बिजली का झटका", "करंट", "खुला तार", "नंगा तार",
+            "नंगी तार",
         ]
         
         msg_lower = message.lower()
@@ -21,6 +24,7 @@ class SafetyService:
             "en": "Please stop using the device and avoid touching exposed electrical parts. This may be dangerous. Please arrange for a qualified technician.",
             "ta": "சாதனத்தைப் பயன்படுத்துவதை நிறுத்தி, வெளிப்பட்ட மின்சாரப் பகுதிகளைத் தொடாதீர்கள். இது ஆபத்தானதாக இருக்கலாம். தகுதியான தொழில்நுட்ப நிபுணரை அணுகவும்.",
             "te": "పరికరాన్ని ఉపయోగించడం ఆపి, బయట కనిపించే విద్యుత్ భాగాలను తాకవద్దు. ఇది ప్రమాదకరం కావచ్చు. అర్హత కలిగిన సాంకేతిక నిపుణుడిని సంప్రదించండి.",
+            "hi": "कृपया उपकरण का उपयोग बंद करें और खुले बिजली के तारों या पुर्ज़ों को न छुएँ। यह खतरनाक हो सकता है। किसी योग्य तकनीशियन से सहायता लें।",
         }
         return {
             "message": messages.get(language, messages["en"]),

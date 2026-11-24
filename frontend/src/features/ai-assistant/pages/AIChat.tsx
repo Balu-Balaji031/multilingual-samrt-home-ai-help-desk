@@ -144,7 +144,8 @@ export default function AIChat() {
         // Send multimodal request
         const tempMsg: AIMessage = {
           messageId: Date.now().toString(), sessionId, userId: user!.uid, sender: 'CUSTOMER',
-          message: inputText.trim() || 'Attached an image.', inputType: 'IMAGE', language: session?.language || 'en', timestamp: new Date().toISOString()
+          message: inputText.trim() || (session?.language === 'hi' ? 'मैंने एक तस्वीर संलग्न की है।' : 'Attached an image.'),
+          inputType: 'IMAGE', language: session?.language || 'en', timestamp: new Date().toISOString()
         };
         setMessages(prev => [...prev, tempMsg]);
         

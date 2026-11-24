@@ -43,9 +43,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setProfile(userProfile);
       return userProfile;
     } catch (error) {
-      console.error('Error fetching user profile:', error);
       setProfile(null);
-      return null;
+      throw error;
     } finally {
       setLoading(false);
     }
@@ -60,12 +59,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return userProfile;
     } catch (error) {
       console.error('Error refreshing user profile:', error);
-      return null;
+      throw error;
     }
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, syncAuthenticatedUser);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      void syncAuthenticatedUser(currentUser).catch((error: unknown) => {
+        if (currentUser) console.error('Error fetching user profile:', error);
+      });
+    });
 
     return () => unsubscribe();
   }, [syncAuthenticatedUser]);

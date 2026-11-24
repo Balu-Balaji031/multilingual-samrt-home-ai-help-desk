@@ -8,6 +8,12 @@ import { useAuth } from '../../auth/context/AuthContext';
 import { authService } from '../../auth/services/auth.service';
 import type { UserSettings } from '../../auth/services/auth.service';
 
+type AdminNotificationPreference =
+  | 'newTechnicianApplication'
+  | 'assessmentUpdates'
+  | 'finalApprovalRequired'
+  | 'newServiceRequest';
+
 const defaultSettings: UserSettings = {
   notificationPreferences: {
     serviceUpdates: true,
@@ -32,14 +38,15 @@ function settingsFromProfile(settings?: UserSettings): UserSettings {
   };
 }
 
-function PreferenceToggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
+function PreferenceToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-slate-300'}`}
+      className={`relative h-6 w-11 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${checked ? 'bg-blue-600' : 'bg-slate-300'}`}
     >
       <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
@@ -49,23 +56,36 @@ function PreferenceToggle({ checked, onChange }: { checked: boolean; onChange: (
 export default function AdminSettings() {
   const { user, profile, loading: authLoading, syncAuthenticatedUser } = useAuth();
   const navigate = useNavigate();
-  const [fullName, setFullName] = useState('');
-  const [mobileNumber, setMobileNumber] = useState('');
+  const [fullName, setFullName] = useState(profile?.fullName || '');
+  const [mobileNumber, setMobileNumber] = useState(profile?.mobileNumber || '');
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [savingNotification, setSavingNotification] = useState<AdminNotificationPreference | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
-    if (profile) {
-      setFullName(profile.fullName || '');
-      setMobileNumber(profile.mobileNumber || '');
-      setSettings(settingsFromProfile(profile.settings));
-    }
-  }, [profile]);
+    let active = true;
+    if (!user || authLoading) return () => { active = false; };
+    void authService.getUserProfile(user.uid).then((freshProfile) => {
+      if (!active) return;
+      if (!freshProfile || freshProfile.role !== 'admin') {
+        setError('Administrator profile could not be verified.');
+        return;
+      }
+      setSettings(settingsFromProfile(freshProfile.settings));
+    }).catch((loadError: unknown) => {
+      console.error(loadError);
+      if (active) setError('Unable to load saved notification preferences.');
+    }).finally(() => {
+      if (active) setSettingsLoading(false);
+    });
+    return () => { active = false; };
+  }, [authLoading, user]);
 
   const saveProfile = async (event: FormEvent) => {
     event.preventDefault();
@@ -91,20 +111,26 @@ export default function AdminSettings() {
     }
   };
 
-  const updateNotification = async (key: keyof UserSettings['notificationPreferences'], value: boolean) => {
+  const updateNotification = async (key: AdminNotificationPreference, value: boolean) => {
     if (!user) return;
+    const previousSettings = settings;
     const nextSettings = {
       ...settings,
       notificationPreferences: { ...settings.notificationPreferences, [key]: value },
     };
     setSettings(nextSettings);
     setError('');
+    setMessage('');
+    setSavingNotification(key);
     try {
-      await authService.updateUserSettings(user.uid, nextSettings);
+      await authService.updateAdminNotificationPreference(user.uid, key, value);
       setMessage('Notification preferences updated.');
     } catch (saveError) {
+      setSettings(previousSettings);
       console.error(saveError);
       setError('Unable to save notification preferences.');
+    } finally {
+      setSavingNotification(null);
     }
   };
 
@@ -142,7 +168,7 @@ export default function AdminSettings() {
     navigate('/login');
   };
 
-  if (authLoading || !profile) {
+  if (authLoading || !profile || settingsLoading) {
     return <div className="p-8 text-center text-slate-500">Loading your settings...</div>;
   }
 
@@ -170,11 +196,12 @@ export default function AdminSettings() {
 
       <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <SectionHeading icon={<Bell size={18} />} title="Notifications" />
+        {savingNotification && <p role="status" className="mb-3 text-sm text-blue-700">Saving notification preferences...</p>}
         <div className="divide-y divide-slate-100">
-          <SettingRow title="New Technician Application" description="Get notified when a technician submits an application." checked={settings.notificationPreferences.newTechnicianApplication ?? true} onChange={(value) => void updateNotification('newTechnicianApplication', value)} />
-          <SettingRow title="Assessment Updates" description="Get notified about assessment scheduling and results." checked={settings.notificationPreferences.assessmentUpdates ?? true} onChange={(value) => void updateNotification('assessmentUpdates', value)} />
-          <SettingRow title="Final Approval Required" description="Get notified when a technician is ready for final approval." checked={settings.notificationPreferences.finalApprovalRequired ?? true} onChange={(value) => void updateNotification('finalApprovalRequired', value)} />
-          <SettingRow title="New Service Request" description="Get notified when a new customer service request requires attention." checked={settings.notificationPreferences.newServiceRequest ?? true} onChange={(value) => void updateNotification('newServiceRequest', value)} />
+          <SettingRow title="New Technician Application" description="Get notified when a technician submits an application." checked={settings.notificationPreferences.newTechnicianApplication ?? true} disabled={savingNotification !== null} onChange={(value) => void updateNotification('newTechnicianApplication', value)} />
+          <SettingRow title="Assessment Updates" description="Get notified about assessment scheduling and results." checked={settings.notificationPreferences.assessmentUpdates ?? true} disabled={savingNotification !== null} onChange={(value) => void updateNotification('assessmentUpdates', value)} />
+          <SettingRow title="Final Approval Required" description="Get notified when a technician is ready for final approval." checked={settings.notificationPreferences.finalApprovalRequired ?? true} disabled={savingNotification !== null} onChange={(value) => void updateNotification('finalApprovalRequired', value)} />
+          <SettingRow title="New Service Request" description="Get notified when a new customer service request requires attention." checked={settings.notificationPreferences.newServiceRequest ?? true} disabled={savingNotification !== null} onChange={(value) => void updateNotification('newServiceRequest', value)} />
         </div>
       </section>
 
@@ -196,6 +223,6 @@ function SectionHeading({ icon, title, description }: { icon?: React.ReactNode; 
   return <div className="mb-5 flex items-start gap-3"><div className="mt-0.5 text-blue-600">{icon}</div><div><h2 className="font-bold text-slate-900">{title}</h2>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}</div></div>;
 }
 
-function SettingRow({ title, description, checked, onChange, children }: { title: string; description: string; checked?: boolean; onChange?: (value: boolean) => void; children?: React.ReactNode }) {
-  return <div className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"><div><p className="font-medium text-slate-900">{title}</p><p className="mt-1 text-sm text-slate-500">{description}</p></div>{onChange && <PreferenceToggle checked={checked ?? false} onChange={onChange} />}{children}</div>;
+function SettingRow({ title, description, checked, onChange, disabled, children }: { title: string; description: string; checked?: boolean; onChange?: (value: boolean) => void; disabled?: boolean; children?: React.ReactNode }) {
+  return <div className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0"><div><p className="font-medium text-slate-900">{title}</p><p className="mt-1 text-sm text-slate-500">{description}</p></div>{onChange && <PreferenceToggle checked={checked ?? false} disabled={disabled} onChange={onChange} />}{children}</div>;
 }

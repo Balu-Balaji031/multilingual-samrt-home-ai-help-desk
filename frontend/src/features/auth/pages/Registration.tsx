@@ -60,11 +60,22 @@ export default function Registration() {
         role: role,
       });
       navigate('/verify-email');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorCode = typeof err === 'object' && err !== null && 'code' in err
+        && typeof err.code === 'string'
+        ? err.code
+        : undefined;
       let msg = 'Failed to create account.';
-      if (err.code === 'auth/email-already-in-use') msg = 'This email is already registered.';
-      if (err.code === 'auth/weak-password') msg = 'Password is too weak.';
-      if (err.code === 'auth/invalid-email') msg = 'Invalid email address.';
+      if (errorCode === 'auth/email-already-in-use') msg = 'This email is already registered.';
+      if (errorCode === 'auth/weak-password') msg = 'Password is too weak.';
+      if (errorCode === 'auth/invalid-email') msg = 'Invalid email address.';
+      if (errorCode === 'permission-denied') msg = 'Firestore denied profile creation. Ask the project administrator to verify the deployed users create rule, then try again.';
+      if (['unavailable', 'deadline-exceeded', 'auth/network-request-failed'].includes(errorCode ?? '')) {
+        msg = 'Firebase could not complete account setup because of a network problem. Check your connection and try again.';
+      }
+      if (errorCode === 'profile/create-failed') {
+        msg = 'Account setup could not be completed and may need administrator repair. Contact support before trying again.';
+      }
       setError(msg);
     } finally {
       setLoading(false);

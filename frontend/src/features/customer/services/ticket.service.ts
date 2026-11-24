@@ -34,6 +34,7 @@ export interface CreatedTicket {
   assignedTechnicianId?: string;
   assignedTechnicianName?: string;
   assignedTechnicianSpecialization?: string;
+  preferredServiceTime?: string;
 }
 
 const getHeaders = async () => {

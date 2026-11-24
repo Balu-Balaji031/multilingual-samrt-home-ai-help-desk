@@ -13,7 +13,10 @@ from app.models.ticket import (
     RepairCompletionRequest,
     TicketVerificationRequest,
 )
-from app.services.notification_service import create_service_notification
+from app.services.notification_service import (
+    create_admin_service_request_notification,
+    create_service_notification,
+)
 
 router = APIRouter()
 
@@ -84,6 +87,12 @@ async def create_ticket(request: TicketCreateRequest, user_id: str = Depends(get
     if not session_doc.exists or session_doc.to_dict().get('userId') != user_id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
+    profile_doc = db.collection("users").document(user_id).get()
+    profile_data = profile_doc.to_dict() if profile_doc.exists else {}
+    profile_data = profile_data or {}
+    settings = profile_data.get("settings") or {}
+    preferred_service_time = settings.get("preferredServiceTime", "09:00 AM - 06:00 PM")
+
     ticket_id = f"TKT-{uuid.uuid4().hex[:8].upper()}"
     verification_code = generate_verification_code(db)
     
@@ -101,10 +110,12 @@ async def create_ticket(request: TicketCreateRequest, user_id: str = Depends(get
         priority=determine_priority(request.description, request.aiSummary),
         verificationCode=verification_code,
         verificationStatus="PENDING",
+        preferredServiceTime=preferred_service_time,
     )
     
     db.collection('tickets').document(ticket_id).set(ticket.dict())
     create_service_notification(db, ticket.dict(), "CREATED")
+    create_admin_service_request_notification(db, ticket.dict())
     
     # Update session status
     session_ref.update({

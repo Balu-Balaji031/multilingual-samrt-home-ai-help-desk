@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Home } from 'lucide-react';
 import { Input } from '../../../components/ui/Input';
 import { Button } from '../../../components/ui/Button';
-import { authService } from '../services/auth.service';
+import { AuthFlowError, authService } from '../services/auth.service';
 import { useAuth } from '../context/AuthContext';
 import type { UserRole } from '../services/auth.service';
 
@@ -35,13 +35,25 @@ export default function Login() {
       const profile = await syncAuthenticatedUser(user);
       
       if (!profile) {
-        throw new Error('User profile not found. Please contact support.');
+        await authService.logout();
+        throw new AuthFlowError(
+          'profile/not-found',
+          'No Firestore profile is linked to this account. Ask an administrator to restore the matching users/{uid} profile.',
+        );
+      }
+
+      if (!['customer', 'technician', 'admin'].includes(profile.role)) {
+        await authService.logout();
+        throw new AuthFlowError('profile/invalid-role', 'This account has an unsupported role. Contact support.');
       }
 
       if (profile.role !== selectedRole) {
         // Reject login
         await authService.logout();
-        throw new Error(`Access denied. This account is registered as a ${profile.role}, but you attempted to login as a ${selectedRole}.`);
+        throw new AuthFlowError(
+          'profile/role-mismatch',
+          `Access denied. This account is registered as a ${profile.role}, but you attempted to login as a ${selectedRole}.`,
+        );
       }
 
       // Check email verification if required by your flow (Optional for MVP, but good practice)
@@ -49,7 +61,7 @@ export default function Login() {
       if (!user.emailVerified) {
         if (profile.role === 'admin') {
           await authService.logout();
-          throw new Error('Please verify your email before accessing the Admin Portal.');
+          throw new AuthFlowError('auth/email-not-verified', 'Please verify your email before accessing the Admin Portal.');
         }
         navigate('/verify-email');
         return;
@@ -66,14 +78,29 @@ export default function Login() {
         throw new Error('Unable to determine the account destination.');
       }
       
-    } catch (err: any) {
-      let msg = err.message || 'Login failed.';
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        msg = 'Incorrect email or password.';
-      } else if (err.code === 'auth/user-disabled') {
-        msg = 'This account has been disabled.';
+    } catch (error: unknown) {
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        && typeof error.code === 'string'
+        ? error.code
+        : undefined;
+
+      if (['auth/invalid-credential', 'auth/user-not-found', 'auth/wrong-password'].includes(errorCode ?? '')) {
+        setError('Incorrect email or password.');
+      } else if (errorCode === 'auth/invalid-email') {
+        setError('Enter a valid email address.');
+      } else if (errorCode === 'auth/user-disabled') {
+        setError('This account has been disabled.');
+      } else if (errorCode === 'permission-denied') {
+        setError('Your credentials were accepted, but Firestore denied access to your account profile. Ask the project administrator to verify the deployed users/{uid} read rule.');
+      } else if (['unavailable', 'deadline-exceeded', 'auth/network-request-failed'].includes(errorCode ?? '')) {
+        setError('Could not reach Firebase to load your account profile. Check your connection and try again.');
+      } else if (['auth/invalid-api-key', 'auth/project-not-found', 'auth/unauthorized-domain', 'auth/operation-not-allowed'].includes(errorCode ?? '')) {
+        setError('Firebase Authentication is not configured for this app. Contact the project administrator.');
+      } else if (error instanceof AuthFlowError) {
+        setError(error.message);
+      } else {
+        setError('Unable to sign in right now. Please try again.');
       }
-      setError(msg);
     } finally {
       setLoading(false);
     }

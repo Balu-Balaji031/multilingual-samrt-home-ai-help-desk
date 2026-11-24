@@ -4,10 +4,19 @@ from app.prompts.troubleshooting_prompt import TROUBLESHOOTING_SYSTEM_PROMPT
 from app.services.ai_provider_manager import AIProviderError, AIProviderManager
 from app.services.safety_service import SafetyService
 from app.services.troubleshooting_strategy import TroubleshootingStrategy
+from app.core.performance import timed_stage
 
 
 class TroubleshootingResponseError(Exception):
     pass
+
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ta": "Tamil",
+    "te": "Telugu",
+    "hi": "Hindi",
+}
 
 
 class TroubleshootingService:
@@ -31,12 +40,20 @@ class TroubleshootingService:
         if self.safety.detect_unsafe_condition(new_message):
             return self.safety.get_safety_warning(session.get("language", "en"))
 
-        system_prompt = f"{TROUBLESHOOTING_SYSTEM_PROMPT}\n\n{self._build_context(session)}"
-        messages = self._format_history(conversation_history)
-        content = new_message
-        if image_url:
-            content += f"\n[User uploaded image for this same troubleshooting session: {image_url}]"
-        messages.append({"role": "user", "content": content})
+        language = session.get("language", "en")
+        with timed_stage("conversation_history_preparation", language=language):
+            language_name = LANGUAGE_NAMES.get(language, "English")
+            system_prompt = (
+                f"{TROUBLESHOOTING_SYSTEM_PROMPT}\n\n"
+                f"Selected response language: {language_name} (code: {language}). "
+                f"Write every customer-facing response only in {language_name} and set the JSON language field to \"{language}\".\n\n"
+                f"{self._build_context(session)}"
+            )
+            messages = self._format_history(conversation_history)
+            content = new_message
+            if image_url:
+                content += f"\n[User uploaded image for this same troubleshooting session: {image_url}]"
+            messages.append({"role": "user", "content": content})
 
         try:
             response = await self.ai_manager.get_response(system_prompt, messages, image_bytes, mime_type)
@@ -88,9 +105,9 @@ class TroubleshootingService:
         if not isinstance(response, dict) or not isinstance(response.get("message"), str) or not response["message"].strip():
             raise TroubleshootingResponseError("The AI provider returned no customer-facing message.")
 
-        language = response.get("language") or session.get("language", "en")
-        if language not in {"en", "ta", "te"}:
-            language = session.get("language", "en")
+        language = session.get("language", "en")
+        if language not in LANGUAGE_NAMES:
+            language = "en"
         status = response.get("status", "IN_PROGRESS")
         step = response.get("step", session.get("currentStep", "PROBLEM_UNDERSTANDING"))
         safety_status = response.get("safety_status", "SAFE")

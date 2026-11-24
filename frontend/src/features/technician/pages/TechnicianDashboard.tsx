@@ -62,7 +62,12 @@ export default function TechnicianDashboard() {
   const percent = useMemo(() => technicianProfileCompletion(profile), [profile]);
 
   useEffect(() => {
-    if (user) void refreshAuthenticatedProfile();
+    if (user) {
+      void refreshAuthenticatedProfile().catch((refreshError: unknown) => {
+        console.error('Unable to refresh technician profile:', refreshError);
+        setError('Unable to refresh your profile. Check your connection and try again.');
+      });
+    }
   }, [refreshAuthenticatedProfile, user]);
 
   const submitApplication = async () => {

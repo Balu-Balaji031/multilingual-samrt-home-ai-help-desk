@@ -42,6 +42,7 @@ class Ticket(BaseModel):
     assignedTechnicianId: Optional[str] = None
     assignedTechnicianName: Optional[str] = None
     assignedTechnicianSpecialization: Optional[str] = None
+    preferredServiceTime: Optional[str] = None
 
 class TicketCreateRequest(BaseModel):
     sessionId: str

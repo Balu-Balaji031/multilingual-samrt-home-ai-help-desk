@@ -1,5 +1,6 @@
 import { 
   createUserWithEmailAndPassword, 
+  deleteUser,
   signInWithEmailAndPassword, 
   sendPasswordResetEmail, 
   sendEmailVerification, 
@@ -21,6 +22,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { auth, db } from '../../../services/firebase';
+import { adminNotificationService } from '../../admin/services/admin-notification.service';
 
 export type UserRole = 'customer' | 'technician' | 'admin';
 
@@ -127,11 +129,45 @@ export interface UserProfile {
   application?: TechnicianApplication;
 }
 
+export class AuthFlowError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'AuthFlowError';
+    this.code = code;
+  }
+}
+
+const isUserRole = (role: unknown): role is UserRole =>
+  role === 'customer' || role === 'technician' || role === 'admin';
+
+const saveNewUserProfile = async (user: User, profile: UserProfile): Promise<void> => {
+  try {
+    await setDoc(doc(db, 'users', user.uid), profile);
+  } catch (profileError) {
+    try {
+      await deleteUser(user);
+    } catch {
+      await signOut(auth).catch(() => undefined);
+      throw new AuthFlowError(
+        'profile/create-failed',
+        'Account setup could not be completed. Contact support before trying again.',
+      );
+    }
+    throw profileError;
+  }
+};
+
 export const authService = {
   async registerUser(
     data: Omit<UserProfile, 'uid' | 'createdAt'> & { password: string }
   ): Promise<User> {
     const { email, password, fullName, mobileNumber, preferredLanguage, role } = data;
+
+    if (role !== 'customer' && role !== 'technician') {
+      throw new AuthFlowError('profile/invalid-registration-role', 'Self-registration is only available for customer and technician accounts.');
+    }
     
     // 1. Create auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -148,26 +184,11 @@ export const authService = {
       createdAt: new Date().toISOString(),
     };
 
-    await setDoc(doc(db, 'users', user.uid), userProfile);
+    await saveNewUserProfile(user, userProfile);
 
     // 3. Send email verification
     await sendEmailVerification(user);
 
-    return user;
-  },
-
-  async registerAdmin(email: string, password: string): Promise<User> {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-
-    await setDoc(doc(db, 'users', user.uid), {
-      uid: user.uid,
-      email,
-      role: 'admin',
-      createdAt: new Date().toISOString(),
-    });
-
-    await sendEmailVerification(user);
     return user;
   },
 
@@ -188,10 +209,14 @@ export const authService = {
     const docRef = doc(db, 'users', uid);
     const docSnap = await getDoc(docRef);
     
-    if (docSnap.exists()) {
-      return docSnap.data() as UserProfile;
+    if (!docSnap.exists()) return null;
+
+    const profile = docSnap.data();
+    if (!isUserRole(profile.role)) {
+      throw new AuthFlowError('profile/invalid-role', 'This account has an unsupported role. Contact support.');
     }
-    return null;
+
+    return profile as UserProfile;
   },
 
   async updateUserProfile(uid: string, data: Partial<Pick<UserProfile, 'fullName' | 'mobileNumber' | 'preferredLanguage' | 'addressLine1' | 'addressLine2' | 'city' | 'state' | 'pincode' | 'landmark'>>): Promise<void> {
@@ -202,6 +227,43 @@ export const authService = {
     await updateDoc(doc(db, 'users', uid), { settings });
   },
 
+  async updateAdminNotificationPreference(
+    uid: string,
+    key: 'newTechnicianApplication' | 'assessmentUpdates' | 'finalApprovalRequired' | 'newServiceRequest',
+    enabled: boolean,
+  ): Promise<void> {
+    if (auth.currentUser?.uid !== uid) {
+      throw new Error('You can only update your own administrator preferences.');
+    }
+    const profile = await getDoc(doc(db, 'users', uid));
+    if (!profile.exists() || profile.data().role !== 'admin') {
+      throw new Error('Administrator access is required.');
+    }
+    await updateDoc(doc(db, 'users', uid), {
+      [`settings.notificationPreferences.${key}`]: enabled,
+    });
+  },
+
+  async updateTechnicianSettings(uid: string, settings: UserSettings): Promise<void> {
+    if (auth.currentUser?.uid !== uid) {
+      throw new Error('You can only update your own technician settings.');
+    }
+
+    await updateDoc(doc(db, 'users', uid), {
+      'settings.appLanguage': settings.appLanguage,
+      'settings.technicianPreferences.contactMethod': settings.technicianPreferences?.contactMethod ?? 'Email',
+      'settings.technicianPreferences.preferredJobTypes': settings.technicianPreferences?.preferredJobTypes ?? [],
+      'settings.technicianPreferences.maximumTravelDistance': settings.technicianPreferences?.maximumTravelDistance ?? '15 km',
+      'settings.technicianPreferences.jobAssignmentNotifications': settings.technicianPreferences?.jobAssignmentNotifications ?? true,
+      'settings.technicianPreferences.outsidePreferredHours': settings.technicianPreferences?.outsidePreferredHours ?? false,
+      'settings.notificationPreferences.newJobAssignments': settings.notificationPreferences.newJobAssignments ?? true,
+      'settings.notificationPreferences.jobStatusUpdates': settings.notificationPreferences.jobStatusUpdates ?? true,
+      'settings.notificationPreferences.technicianAssessmentUpdates': settings.notificationPreferences.technicianAssessmentUpdates ?? true,
+      'settings.notificationPreferences.applicationUpdates': settings.notificationPreferences.applicationUpdates ?? true,
+      'settings.notificationPreferences.adminMessages': settings.notificationPreferences.adminMessages ?? true,
+    });
+  },
+
   async updateTechnicianProfile(
     uid: string,
     data: Pick<UserProfile, 'fullName' | 'mobileNumber'> & { technicianProfile: TechnicianProfile }
@@ -210,6 +272,10 @@ export const authService = {
   },
 
   async submitTechnicianApplication(uid: string): Promise<void> {
+    const user = auth.currentUser;
+    if (!user || user.uid !== uid) {
+      throw new Error('You can only submit your own technician application.');
+    }
     await updateDoc(doc(db, 'users', uid), {
       application: {
         status: 'UNDER_REVIEW',
@@ -217,6 +283,14 @@ export const authService = {
         updatedAt: serverTimestamp(),
       },
     });
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
+    const response = await fetch(`${apiBase}/admin-notifications/application-submitted`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${await user.getIdToken()}` },
+    });
+    if (!response.ok) {
+      throw new Error('Application was submitted, but the administrator notification could not be created.');
+    }
   },
 
   async getPendingTechnicianApplications(): Promise<UserProfile[]> {
@@ -307,6 +381,7 @@ export const authService = {
       },
       'application.updatedAt': serverTimestamp(),
     });
+    await adminNotificationService.createWorkflowNotifications('ASSESSMENT_UPDATE', uid);
   },
 
   async evaluateTechnicianAssessment(
@@ -323,6 +398,10 @@ export const authService = {
       'application.assessment.evaluatedAt': serverTimestamp(),
       'application.updatedAt': serverTimestamp(),
     });
+    await adminNotificationService.createWorkflowNotifications('ASSESSMENT_UPDATE', uid);
+    if (result === 'PASS') {
+      await adminNotificationService.createWorkflowNotifications('FINAL_APPROVAL_REQUIRED', uid);
+    }
   },
 
   async updateTechnicianApplication(

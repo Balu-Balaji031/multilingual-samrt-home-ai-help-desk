@@ -6,6 +6,10 @@ service cloud.firestore {
     return request.auth != null
       && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
   }
+
+  function isAdminUser(userId) {
+    return get(/databases/$(database)/documents/users/$(userId)).data.role == "admin";
+  }
     
     // Default deny for all unspecified collections
     match /{document=**} {
@@ -14,9 +18,11 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow create: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.role in ["customer", "technician"];
       allow update: if request.auth != null && (
-        request.auth.uid == userId
+        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
         || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["application"]))
       );
     }
@@ -51,11 +57,30 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow create: if request.auth != null && (
+        (request.resource.data.type != "ADMIN" && request.resource.data.userId == request.auth.uid)
+        || (
+          isAdmin()
+          && request.resource.data.type == "ADMIN"
+          && isAdminUser(request.resource.data.userId)
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.category in [
+            "NEW_TECHNICIAN_APPLICATION",
+            "ASSESSMENT_UPDATE",
+            "FINAL_APPROVAL_REQUIRED",
+            "NEW_SERVICE_REQUEST"
+          ]
+          && request.resource.data.isRead == false
+        )
+      );
       allow update: if request.auth != null
         && resource.data.userId == request.auth.uid
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead"]);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead"])
+        && (
+          resource.data.type != "ADMIN"
+          || (isAdmin() && resource.data.type == "ADMIN")
+        );
       allow delete: if false;
     }
 

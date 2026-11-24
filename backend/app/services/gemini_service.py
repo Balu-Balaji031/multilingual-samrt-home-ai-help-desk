@@ -24,7 +24,7 @@ class GeminiService:
             if image_bytes and mime_type:
                 contents.append({"mime_type": mime_type, "data": image_bytes})
             
-            response = self.model.generate_content(
+            response = await self.model.generate_content_async(
                 contents,
                 generation_config=genai.types.GenerationConfig(
                     response_mime_type="application/json",

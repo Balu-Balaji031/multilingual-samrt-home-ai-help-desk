@@ -1,10 +1,11 @@
 import uuid
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from app.core.auth import get_current_user_id
 from app.core.firebase import get_firestore
 from app.models.session import AISession, SessionCreateRequest, SessionResponse
 from app.models.message import AIMessage, ChatRequest, SenderType, InputType
+from app.core.performance import DurationAccumulator, set_request_language, timed_stage
 from app.services.ai_provider_manager import AIProviderError
 from app.services.troubleshooting_service import TroubleshootingResponseError, TroubleshootingService
 from app.services.notification_service import create_ai_notification
@@ -71,14 +72,29 @@ def _valid_image_signature(data: bytes, content_type: str) -> bool:
     return signatures.get(content_type, False)
 
 @router.post("/sessions", response_model=SessionResponse)
-async def create_session(request: SessionCreateRequest, user_id: str = Depends(get_current_user_id)):
+async def create_session(
+    request: SessionCreateRequest,
+    performance_request: Request,
+    user_id: str = Depends(get_current_user_id),
+):
+    performance_request.state.ai_performance_language = request.language
+    set_request_language(request.language)
     db = get_firestore()
     if not db:
         raise HTTPException(status_code=500, detail="Database not initialized")
         
     # Verify device ownership
     device_ref = db.collection('devices').document(request.deviceId)
-    device_doc = device_ref.get()
+    with timed_stage("firestore_retrieval", flow="initial", language=request.language):
+        device_doc = device_ref.get(field_paths=[
+            "userId",
+            "deviceType",
+            "category",
+            "deviceName",
+            "brand",
+            "modelNumber",
+            "room",
+        ])
     
     if not device_doc.exists:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -103,8 +119,10 @@ async def create_session(request: SessionCreateRequest, user_id: str = Depends(g
         problem=request.problem
     )
     
+    firestore_saving = DurationAccumulator()
     try:
-        db.collection('ai_sessions').document(session_id).set(session.dict())
+        with firestore_saving.measure():
+            db.collection('ai_sessions').document(session_id).set(session.dict())
         
         # Save initial user message
         msg_id = str(uuid.uuid4())
@@ -116,9 +134,11 @@ async def create_session(request: SessionCreateRequest, user_id: str = Depends(g
             message=request.problem,
             language=request.language
         )
-        db.collection('ai_messages').document(msg_id).set(initial_msg.dict())
+        with firestore_saving.measure():
+            db.collection('ai_messages').document(msg_id).set(initial_msg.dict())
         initial_response = await troubleshooting_service.start_session(session.dict())
-        _apply_session_updates(db, db.collection('ai_sessions').document(session_id), session.dict(), initial_response)
+        with firestore_saving.measure():
+            _apply_session_updates(db, db.collection('ai_sessions').document(session_id), session.dict(), initial_response)
         ai_msg_id = str(uuid.uuid4())
         ai_msg = AIMessage(
             messageId=ai_msg_id,
@@ -128,20 +148,25 @@ async def create_session(request: SessionCreateRequest, user_id: str = Depends(g
             message=initial_response["message"],
             language=initial_response["language"],
         )
-        db.collection('ai_messages').document(ai_msg_id).set(ai_msg.dict())
+        with firestore_saving.measure():
+            db.collection('ai_messages').document(ai_msg_id).set(ai_msg.dict())
         session = AISession(**{**session.dict(), **initial_response.get("state_updates", {}),
                                "currentStep": initial_response.get("step", session.currentStep),
                                "status": initial_response.get("status", session.status),
                                "confidence": initial_response.get("confidence", session.confidence),
                                "safetyStatus": initial_response.get("safety_status", session.safetyStatus)})
     except AIProviderError as e:
+        firestore_saving.record("firestore_saving", outcome="error", flow="initial", language=request.language)
         raise HTTPException(status_code=503, detail="AI troubleshooting is temporarily unavailable. Please try again shortly or raise a ticket.") from e
     except TroubleshootingResponseError as e:
+        firestore_saving.record("firestore_saving", outcome="error", flow="initial", language=request.language)
         raise HTTPException(status_code=502, detail="AI troubleshooting returned an invalid response.") from e
     except Exception as e:
+        firestore_saving.record("firestore_saving", outcome="error", flow="initial", language=request.language)
         print(f"Firestore write failed for session {session_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to initialize AI session in database.")
     
+    firestore_saving.record("firestore_saving", flow="initial", language=request.language)
     return session
 
 @router.get("/sessions", response_model=list[SessionResponse])
@@ -191,21 +216,30 @@ async def get_messages(session_id: str, user_id: str = Depends(get_current_user_
     return messages
 
 @router.post("/chat")
-async def chat(request: ChatRequest, user_id: str = Depends(get_current_user_id)):
+async def chat(
+    request: ChatRequest,
+    performance_request: Request,
+    user_id: str = Depends(get_current_user_id),
+):
     db = get_firestore()
     
     # Validate session
     session_ref = db.collection('ai_sessions').document(request.sessionId)
-    session_doc = session_ref.get()
+    firestore_retrieval = DurationAccumulator()
+    with firestore_retrieval.measure():
+        session_doc = session_ref.get()
     
     if not session_doc.exists:
         raise HTTPException(status_code=404, detail="Session not found")
         
     session_data = session_doc.to_dict()
+    performance_request.state.ai_performance_language = session_data.get('language', 'en')
+    set_request_language(session_data.get('language', 'en'))
     if session_data.get('userId') != user_id:
         raise HTTPException(status_code=403, detail="Unauthorized")
         
     # Save user message
+    firestore_saving = DurationAccumulator()
     user_msg_id = str(uuid.uuid4())
     user_msg = AIMessage(
         messageId=user_msg_id,
@@ -216,12 +250,16 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user_id)
         inputType=request.inputType,
         language=session_data.get('language', 'en'),
     )
-    db.collection('ai_messages').document(user_msg_id).set(user_msg.dict())
-    
-    # Get history
-    history_docs_list = list(db.collection('ai_messages').where('sessionId', '==', request.sessionId).stream())
-    history = [doc.to_dict() for doc in history_docs_list]
-    history.sort(key=lambda x: x.get('timestamp', ''))
+    with firestore_saving.measure():
+        db.collection('ai_messages').document(user_msg_id).set(user_msg.dict())
+
+    # Exclude the current turn; process_chat appends it to the prior history.
+    with firestore_retrieval.measure():
+        history_docs_list = list(db.collection('ai_messages').where('sessionId', '==', request.sessionId).stream())
+    with timed_stage("conversation_history_preparation", flow="follow_up", language=session_data.get('language', 'en')):
+        history = [doc.to_dict() for doc in history_docs_list if doc.id != user_msg_id]
+        history.sort(key=lambda x: x.get('timestamp', ''))
+    firestore_retrieval.record("firestore_retrieval", flow="follow_up", language=session_data.get('language', 'en'))
     
     # Process with AI
     try:
@@ -232,8 +270,10 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user_id)
             image_url=None
         )
     except AIProviderError as e:
+        firestore_saving.record("firestore_saving", outcome="error", flow="follow_up", language=session_data.get('language', 'en'))
         raise HTTPException(status_code=503, detail="AI troubleshooting is temporarily unavailable. Please try again shortly or raise a ticket.") from e
     except TroubleshootingResponseError as e:
+        firestore_saving.record("firestore_saving", outcome="error", flow="follow_up", language=session_data.get('language', 'en'))
         raise HTTPException(status_code=502, detail="AI troubleshooting returned an invalid response.") from e
     
     # Save AI message
@@ -246,10 +286,13 @@ async def chat(request: ChatRequest, user_id: str = Depends(get_current_user_id)
         message=ai_response.get("message", ""),
         language=ai_response.get("language", session_data.get('language', 'en'))
     )
-    db.collection('ai_messages').document(ai_msg_id).set(ai_msg.dict())
+    with firestore_saving.measure():
+        db.collection('ai_messages').document(ai_msg_id).set(ai_msg.dict())
     
     # Update session state
-    _apply_session_updates(db, session_ref, session_data, ai_response)
+    with firestore_saving.measure():
+        _apply_session_updates(db, session_ref, session_data, ai_response)
+    firestore_saving.record("firestore_saving", flow="follow_up", language=session_data.get('language', 'en'))
     
     return {
         "ai_message": ai_msg.dict(),
@@ -283,21 +326,21 @@ async def chat_image(
         sessionId=sessionId,
         userId=user_id,
         sender=SenderType.CUSTOMER,
-        message=text or "Attached an image.",
+        message=text or ("मैंने एक तस्वीर संलग्न की है।" if session_data.get("language") == "hi" else "Attached an image."),
         inputType=InputType.IMAGE,
         language=session_data.get('language', 'en'),
     )
     db.collection('ai_messages').document(user_msg_id).set(user_msg.dict())
     
     history_docs = db.collection('ai_messages').where('sessionId', '==', sessionId).stream()
-    history = [doc.to_dict() for doc in history_docs]
+    history = [doc.to_dict() for doc in history_docs if doc.id != user_msg_id]
     history.sort(key=lambda item: item.get('timestamp', ''))
-    
+
     try:
         ai_response = await troubleshooting_service.process_chat(
             session=session_data,
             conversation_history=history,
-            new_message=text or "Attached an image.",
+            new_message=text or ("मैंने एक तस्वीर संलग्न की है।" if session_data.get("language") == "hi" else "Attached an image."),
             image_url=None,
             image_bytes=image_bytes,
             mime_type=image.content_type
@@ -345,7 +388,10 @@ async def chat_voice(
             )
             async with httpx.AsyncClient() as client:
                 files = {'file': (audio.filename, audio_content, audio.content_type)}
-                data = {'model': 'whisper-large-v3'}
+                data = {
+                    'model': 'whisper-large-v3',
+                    'language': session_data.get('language', 'en'),
+                }
                 headers = {'Authorization': f'Bearer {settings.GROQ_API_KEY}'}
                 resp = await client.post('https://api.groq.com/openai/v1/audio/transcriptions', files=files, data=data, headers=headers)
                 resp.raise_for_status()
@@ -367,11 +413,11 @@ async def chat_voice(
         message=transcript, inputType=InputType.VOICE, language=session_data.get('language', 'en')
     )
     db.collection('ai_messages').document(user_msg_id).set(user_msg.dict())
-    
+
     history_docs = db.collection('ai_messages').where('sessionId', '==', sessionId).stream()
-    history = [doc.to_dict() for doc in history_docs]
+    history = [doc.to_dict() for doc in history_docs if doc.id != user_msg_id]
     history.sort(key=lambda item: item.get('timestamp', ''))
-    
+
     try:
         ai_response = await troubleshooting_service.process_chat(
             session=session_data, conversation_history=history, new_message=transcript

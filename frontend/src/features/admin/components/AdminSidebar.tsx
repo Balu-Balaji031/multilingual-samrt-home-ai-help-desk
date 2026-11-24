@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   BadgeCheck,
+  Bell,
   ClipboardCheck,
   FileCheck2,
   FileText,
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../auth/context/AuthContext';
 import { authService } from '../../auth/services/auth.service';
+import { useEffect, useState } from 'react';
+import { adminNotificationService } from '../services/admin-notification.service';
 
 const menuItems = [
   { name: 'Applications', path: '/admin/applications', icon: FileText },
@@ -18,12 +21,34 @@ const menuItems = [
   { name: 'Final Approvals', path: '/admin/final-approvals', icon: FileCheck2 },
   { name: 'Approved Technicians', path: '/admin/approved-technicians', icon: BadgeCheck },
   { name: 'Customers', path: '/admin/customers', icon: Users },
+  { name: 'Notifications', path: '/admin/notifications', icon: Bell },
   { name: 'Settings', path: '/admin/settings', icon: Settings },
 ];
 
 export default function AdminSidebar() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void adminNotificationService.subscribe(
+      (notifications) => {
+        if (active) setUnreadCount(notifications.filter((notification) => !notification.isRead).length);
+      },
+      (error) => console.error('Unable to subscribe to admin notifications.', error),
+    ).then((stop) => {
+      if (active) unsubscribe = stop;
+      else stop();
+    }).catch((error: unknown) => {
+      console.error('Unable to subscribe to admin notifications.', error);
+    });
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
 
   const handleLogout = async () => {
     await authService.logout();
@@ -61,7 +86,12 @@ export default function AdminSidebar() {
             {({ isActive }) => (
               <>
                 <Icon size={19} className={`mr-3 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                <span>{name}</span>
+                <span className="flex-1">{name}</span>
+                {name === 'Notifications' && unreadCount > 0 && (
+                  <span className="ml-2 min-w-5 rounded-full bg-blue-600 px-1.5 py-0.5 text-center text-[10px] font-bold leading-4 text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </>
             )}
           </NavLink>

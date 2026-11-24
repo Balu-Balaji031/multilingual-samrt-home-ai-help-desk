@@ -5,6 +5,7 @@ export type SessionStep = 'DEVICE_IDENTIFIED' | 'PROBLEM_UNDERSTANDING' | 'BASIC
 export type SenderType = 'CUSTOMER' | 'AI' | 'SYSTEM';
 
 export type InputType = 'TEXT' | 'IMAGE' | 'VOICE';
+export type SupportedLanguage = 'en' | 'ta' | 'te' | 'hi';
 
 export interface AISession {
   sessionId: string;
@@ -16,7 +17,7 @@ export interface AISession {
   brand: string;
   modelNumber?: string;
   room: string;
-  language: string;
+  language: SupportedLanguage;
   problem: string;
   currentStep: SessionStep;
   status: SessionStatus;
@@ -33,13 +34,13 @@ export interface AIMessage {
   sender: SenderType;
   message: string;
   inputType: InputType;
-  language: string;
+  language: SupportedLanguage;
   timestamp: string;
 }
 
 export interface SessionCreateRequest {
   deviceId: string;
-  language: string;
+  language: SupportedLanguage;
   problem: string;
 }
 

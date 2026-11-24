@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   query,
   setDoc,
@@ -21,6 +22,18 @@ export interface CustomerNotification {
   ticketId?: string;
   isRead: boolean;
   createdAt: string;
+}
+
+type CustomerNotificationPreferences = {
+  serviceUpdates?: boolean;
+  aiUpdates?: boolean;
+  accountSecurityAlerts?: boolean;
+};
+
+function isNotificationEnabled(type: NotificationType, preferences: CustomerNotificationPreferences = {}): boolean {
+  if (type === 'SERVICE') return preferences.serviceUpdates !== false;
+  if (type === 'AI') return preferences.aiUpdates !== false;
+  return preferences.accountSecurityAlerts !== false;
 }
 
 function normalizeTimestamp(value: unknown): string {
@@ -48,13 +61,33 @@ export const notificationService = {
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
     const notificationsQuery = query(collection(db, 'notifications'), where('userId', '==', user.uid));
-    return onSnapshot(notificationsQuery, (snapshot) => {
-      const notifications = snapshot.docs
+    let notifications: CustomerNotification[] = [];
+    let preferences: CustomerNotificationPreferences = {};
+    let notificationsLoaded = false;
+    let preferencesLoaded = false;
+    const emit = () => {
+      if (!notificationsLoaded || !preferencesLoaded) return;
+      onUpdate(notifications.filter((notification) => (
+        notification.userId === user.uid && isNotificationEnabled(notification.type, preferences)
+      )));
+    };
+    const unsubscribeNotifications = onSnapshot(notificationsQuery, (snapshot) => {
+      notifications = snapshot.docs
         .map((notification) => normalizeNotification(notification.id, notification.data()))
-        .filter((notification) => notification.userId === user.uid)
         .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-      onUpdate(notifications);
+      notificationsLoaded = true;
+      emit();
     }, onError);
+    const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (snapshot) => {
+      const settings = snapshot.data()?.settings;
+      preferences = settings?.notificationPreferences || {};
+      preferencesLoaded = true;
+      emit();
+    }, onError);
+    return () => {
+      unsubscribeNotifications();
+      unsubscribeProfile();
+    };
   },
 
   async markAsRead(notificationId: string): Promise<void> {
@@ -66,6 +99,9 @@ export const notificationService = {
   ): Promise<void> {
     const user = auth.currentUser;
     if (!user) throw new Error('Not authenticated');
+    const profile = await getDoc(doc(db, 'users', user.uid));
+    const preferences = profile.data()?.settings?.notificationPreferences || {};
+    if (!isNotificationEnabled('ACCOUNT', preferences)) return;
     const details = event === 'profile-updated'
       ? ['Profile Updated', 'Your SmartAssist profile details were updated successfully.']
       : ['Password Changed', 'Your account password was changed successfully.'];

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime
 from enum import Enum
 
@@ -33,7 +33,7 @@ class AISession(BaseModel):
     brand: str
     modelNumber: Optional[str] = None
     room: str
-    language: str
+    language: Literal["en", "ta", "te", "hi"]
     problem: str
     currentStep: SessionStep = SessionStep.DEVICE_IDENTIFIED
     status: SessionStatus = SessionStatus.IN_PROGRESS
@@ -53,7 +53,7 @@ class AISession(BaseModel):
 
 class SessionCreateRequest(BaseModel):
     deviceId: str
-    language: str
+    language: Literal["en", "ta", "te", "hi"]
     problem: str
 
 class SessionResponse(AISession):

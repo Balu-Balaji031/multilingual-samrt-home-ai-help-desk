@@ -33,12 +33,17 @@ const defaultSettings: UserSettings = {
 
 const languageOptions = [
   { value: 'English', label: 'English' },
-  { value: 'Tamil', label: 'Tamil' },
-  { value: 'Telugu', label: 'Telugu' },
+  { value: 'Tamil', label: 'தமிழ்' },
+  { value: 'Telugu', label: 'తెలుగు' },
+  { value: 'Hindi', label: 'हिन्दी' },
 ];
-const distanceOptions = ['10 km', '15 km', '25 km', '50 km'].map((value) => ({ value, label: value }));
 const jobTypes = ['Installation', 'Repair', 'Troubleshooting'];
 const contactMethods = ['Email', 'SMS', 'Phone Call'] as const;
+
+function distanceValue(value: string | undefined): string {
+  const match = value?.match(/^\s*(\d+(?:\.\d+)?)\s*(?:km)?\s*$/i);
+  return match && Number(match[1]) > 0 ? match[1] : '';
+}
 
 function settingsFromProfile(settings?: UserSettings): UserSettings {
   return {
@@ -56,14 +61,19 @@ function settingsFromProfile(settings?: UserSettings): UserSettings {
   };
 }
 
-function Toggle({ checked, onChange }: { checked: boolean; onChange: (value: boolean) => void }) {
-  return <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className={`relative h-6 w-11 rounded-full ${checked ? 'bg-blue-600' : 'bg-slate-300'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} /></button>;
+function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (value: boolean) => void; disabled?: boolean }) {
+  return <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)} className={`relative h-6 w-11 rounded-full disabled:cursor-wait disabled:opacity-60 ${checked ? 'bg-blue-600' : 'bg-slate-300'}`}><span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} /></button>;
 }
 
 export default function TechnicianSettings() {
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, refreshAuthenticatedProfile } = useAuth();
   const navigate = useNavigate();
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
+  const [maximumDistance, setMaximumDistance] = useState(() => distanceValue(defaultSettings.technicianPreferences?.maximumTravelDistance));
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsLoadError, setSettingsLoadError] = useState(false);
+  const [settingsLoadAttempt, setSettingsLoadAttempt] = useState(0);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [passwordOpen, setPasswordOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -71,21 +81,56 @@ export default function TechnicianSettings() {
   const [deleting, setDeleting] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const userId = user?.uid;
 
   useEffect(() => {
-    if (profile) setSettings(settingsFromProfile(profile.settings));
-  }, [profile]);
+    if (authLoading) return;
+    let active = true;
+    const loadSettings = async () => {
+      setSettingsLoading(true);
+      setSettingsLoadError(false);
+      setError('');
+      try {
+        if (!userId) throw new Error('You must be logged in to load technician settings.');
+        const freshProfile = await authService.getUserProfile(userId);
+        if (!freshProfile || freshProfile.role !== 'technician') {
+          throw new Error('Technician profile not found.');
+        }
+        if (!active) return;
+        const loadedSettings = settingsFromProfile(freshProfile.settings);
+        setSettings(loadedSettings);
+        setMaximumDistance(distanceValue(loadedSettings.technicianPreferences?.maximumTravelDistance));
+      } catch (loadError) {
+        console.error(loadError);
+        if (active) {
+          setSettingsLoadError(true);
+          setError('Unable to load your settings. Please try again.');
+        }
+      } finally {
+        if (active) setSettingsLoading(false);
+      }
+    };
+    void loadSettings();
+    return () => { active = false; };
+  }, [authLoading, settingsLoadAttempt, userId]);
 
   const saveSettings = async (nextSettings: UserSettings) => {
     if (!user) return;
-    setSettings(nextSettings);
+    setSavingSettings(true);
     setError('');
+    setMessage('');
     try {
-      await authService.updateUserSettings(user.uid, nextSettings);
+      await authService.updateTechnicianSettings(user.uid, nextSettings);
+      setSettings(nextSettings);
       setMessage('Settings updated successfully.');
+      void refreshAuthenticatedProfile().catch((refreshError) => {
+        console.error('Technician settings were saved, but the profile refresh failed:', refreshError);
+      });
     } catch (saveError) {
       console.error(saveError);
       setError('Unable to save your settings.');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
@@ -147,7 +192,10 @@ export default function TechnicianSettings() {
     navigate('/login');
   };
 
-  if (authLoading || !profile) return <div className="p-8 text-center text-slate-500">Loading your settings...</div>;
+  if (authLoading || settingsLoading) return <div className="p-8 text-center text-slate-500">Loading your settings...</div>;
+  if (!profile || settingsLoadError) {
+    return <div className="mx-auto max-w-4xl rounded-xl border border-red-100 bg-red-50 p-6 text-center text-red-700"><p>{error || 'Unable to load your technician settings.'}</p><Button type="button" variant="outline" className="mt-4" onClick={() => setSettingsLoadAttempt((attempt) => attempt + 1)}>Retry</Button></div>;
+  }
   const professionalStatus = profile.application?.status || 'NOT_APPLIED';
   const jobEligibility = professionalStatus === 'FINAL_APPROVED' ? 'Eligible for service jobs' : 'Not yet eligible for service jobs';
 
@@ -158,26 +206,40 @@ export default function TechnicianSettings() {
       {error && <div className="mb-5 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
 
       <SettingsCard title="Notifications" icon={<Bell size={18} />}>
-        <SettingRow title="New Job Assignments" checked={settings.notificationPreferences.newJobAssignments ?? true} onChange={(value) => updateNotifications('newJobAssignments', value)} />
-        <SettingRow title="Job Status Updates" checked={settings.notificationPreferences.jobStatusUpdates ?? true} onChange={(value) => updateNotifications('jobStatusUpdates', value)} />
-        <SettingRow title="Assessment Updates" checked={settings.notificationPreferences.technicianAssessmentUpdates ?? true} onChange={(value) => updateNotifications('technicianAssessmentUpdates', value)} />
-        <SettingRow title="Application Updates" checked={settings.notificationPreferences.applicationUpdates ?? true} onChange={(value) => updateNotifications('applicationUpdates', value)} />
-        <SettingRow title="Admin Messages" checked={settings.notificationPreferences.adminMessages ?? true} onChange={(value) => updateNotifications('adminMessages', value)} />
+        <SettingRow title="New Job Assignments" checked={settings.notificationPreferences.newJobAssignments ?? true} disabled={savingSettings} onChange={(value) => updateNotifications('newJobAssignments', value)} />
+        <SettingRow title="Job Status Updates" checked={settings.notificationPreferences.jobStatusUpdates ?? true} disabled={savingSettings} onChange={(value) => updateNotifications('jobStatusUpdates', value)} />
+        <SettingRow title="Assessment Updates" checked={settings.notificationPreferences.technicianAssessmentUpdates ?? true} disabled={savingSettings} onChange={(value) => updateNotifications('technicianAssessmentUpdates', value)} />
+        <SettingRow title="Application Updates" checked={settings.notificationPreferences.applicationUpdates ?? true} disabled={savingSettings} onChange={(value) => updateNotifications('applicationUpdates', value)} />
+        <SettingRow title="Admin Messages" checked={settings.notificationPreferences.adminMessages ?? true} disabled={savingSettings} onChange={(value) => updateNotifications('adminMessages', value)} />
       </SettingsCard>
 
       <SettingsCard title="Language & Communication">
-        <SettingRow title="App Language" description="Language used throughout the application."><Select label="" aria-label="App Language" options={languageOptions} value={settings.appLanguage} onChange={(event) => void saveSettings({ ...settings, appLanguage: event.target.value })} /></SettingRow>
-        <div className="border-t border-slate-100 py-4"><p className="font-medium text-slate-900">Preferred Contact Method</p><div className="mt-3 flex flex-wrap gap-5">{contactMethods.map((method) => <label key={method} className="flex items-center gap-2 text-sm text-slate-600"><input type="radio" name="contactMethod" checked={settings.technicianPreferences?.contactMethod === method} onChange={() => updateTechnicianPreference('contactMethod', method)} />{method}</label>)}</div></div>
+        <SettingRow title="App Language" description="Language used throughout the application."><Select label="" aria-label="App Language" options={languageOptions} value={settings.appLanguage} disabled={savingSettings} onChange={(event) => void saveSettings({ ...settings, appLanguage: event.target.value })} /></SettingRow>
+        <div className="border-t border-slate-100 py-4"><p className="font-medium text-slate-900">Preferred Contact Method</p><div className="mt-3 flex flex-wrap gap-5">{contactMethods.map((method) => <label key={method} className="flex items-center gap-2 text-sm text-slate-600"><input type="radio" name="contactMethod" disabled={savingSettings} checked={settings.technicianPreferences?.contactMethod === method} onChange={() => updateTechnicianPreference('contactMethod', method)} />{method}</label>)}</div></div>
       </SettingsCard>
 
       <SettingsCard title="Job Preferences">
-        <div className="mb-4"><p className="font-medium text-slate-900">Preferred Job Types</p><div className="mt-3 flex flex-wrap gap-4">{jobTypes.map((jobType) => <label key={jobType} className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={settings.technicianPreferences?.preferredJobTypes?.includes(jobType) || false} onChange={() => toggleJobType(jobType)} />{jobType}</label>)}</div></div>
-        <SettingRow title="Maximum Travel Distance" description="Preferred maximum distance for job assignments."><Select label="" aria-label="Maximum Travel Distance" options={distanceOptions} value={settings.technicianPreferences?.maximumTravelDistance || '15 km'} onChange={(event) => updateTechnicianPreference('maximumTravelDistance', event.target.value)} /></SettingRow>
-        <SettingRow title="Job Assignment Notifications" checked={settings.technicianPreferences?.jobAssignmentNotifications ?? true} onChange={(value) => updateTechnicianPreference('jobAssignmentNotifications', value)} />
+        <div className="mb-4"><p className="font-medium text-slate-900">Preferred Job Types</p><div className="mt-3 flex flex-wrap gap-4">{jobTypes.map((jobType) => <label key={jobType} className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" disabled={savingSettings} checked={settings.technicianPreferences?.preferredJobTypes?.includes(jobType) || false} onChange={() => toggleJobType(jobType)} />{jobType}</label>)}</div></div>
+        <SettingRow title="Maximum Travel Distance" description="Preferred maximum distance for job assignments.">
+          <div className="flex items-center gap-2">
+            <Input label="" aria-label="Maximum Travel Distance in kilometers" type="number" min="0.1" step="any" value={maximumDistance} disabled={savingSettings} onChange={(event) => setMaximumDistance(event.target.value)} className="w-28" />
+            <span className="text-sm text-slate-600">km</span>
+            <Button type="button" variant="outline" disabled={savingSettings} isLoading={savingSettings} onClick={() => {
+              const distance = Number(maximumDistance);
+              if (!Number.isFinite(distance) || distance <= 0) {
+                setError('Enter a valid maximum travel distance greater than zero.');
+                setMessage('');
+                return;
+              }
+              updateTechnicianPreference('maximumTravelDistance', `${distance} km`);
+            }}>Save</Button>
+          </div>
+        </SettingRow>
+        <SettingRow title="Job Assignment Notifications" checked={settings.technicianPreferences?.jobAssignmentNotifications ?? true} disabled={savingSettings} onChange={(value) => updateTechnicianPreference('jobAssignmentNotifications', value)} />
       </SettingsCard>
 
       <SettingsCard title="Availability Preferences">
-        <SettingRow title="Receive Job Notifications Outside Preferred Hours" checked={settings.technicianPreferences?.outsidePreferredHours ?? false} onChange={(value) => updateTechnicianPreference('outsidePreferredHours', value)} />
+        <SettingRow title="Receive Job Notifications Outside Preferred Hours" checked={settings.technicianPreferences?.outsidePreferredHours ?? false} disabled={savingSettings} onChange={(value) => updateTechnicianPreference('outsidePreferredHours', value)} />
       </SettingsCard>
 
       <SettingsCard title="Security" icon={<ShieldAlert size={18} />}><SettingRow title="Change Password" description="Update your technician account password."><Button type="button" variant="outline" onClick={() => { setError(''); setPasswordOpen(true); }}>Change Password</Button></SettingRow></SettingsCard>
@@ -201,8 +263,8 @@ function SettingsCard({ title, icon, children }: { title: string; icon?: ReactNo
   return <section className="mb-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-3 flex items-center gap-2 text-blue-600"><span>{icon}</span><h2 className="font-bold text-slate-900">{title}</h2></div>{children}</section>;
 }
 
-function SettingRow({ title, description, checked, onChange, value, children }: { title: string; description?: string; checked?: boolean; onChange?: (value: boolean) => void; value?: string; children?: ReactNode }) {
-  return <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-4 last:border-0 last:pb-0"><div><p className="font-medium text-slate-900">{title}</p>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}{value && <p className="mt-1 text-sm font-medium text-slate-600">{value}</p>}</div>{onChange && <Toggle checked={checked ?? false} onChange={onChange} />}{children}</div>;
+function SettingRow({ title, description, checked, onChange, value, children, disabled }: { title: string; description?: string; checked?: boolean; onChange?: (value: boolean) => void; value?: string; children?: ReactNode; disabled?: boolean }) {
+  return <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-4 last:border-0 last:pb-0"><div><p className="font-medium text-slate-900">{title}</p>{description && <p className="mt-1 text-sm text-slate-500">{description}</p>}{value && <p className="mt-1 text-sm font-medium text-slate-600">{value}</p>}</div>{onChange && <Toggle checked={checked ?? false} disabled={disabled} onChange={onChange} />}{children}</div>;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

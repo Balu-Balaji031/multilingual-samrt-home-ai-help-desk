@@ -23,16 +23,32 @@ const languageOptions = [
   { value: 'English', label: 'English' },
   { value: 'Tamil', label: 'தமிழ்' },
   { value: 'Telugu', label: 'తెలుగు' },
+  { value: 'Hindi', label: 'हिन्दी' },
 ];
 
-const serviceTimeOptions = [
-  { value: '09:00 AM - 06:00 PM', label: '09:00 AM - 06:00 PM' },
-  { value: '10:00 AM - 07:00 PM', label: '10:00 AM - 07:00 PM' },
-  { value: '11:00 AM - 08:00 PM', label: '11:00 AM - 08:00 PM' },
-];
+function toInputTime(value: string) {
+  const match = value.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return '';
+  let hours = Number(match[1]) % 12;
+  if (match[3].toUpperCase() === 'PM') hours += 12;
+  return `${String(hours).padStart(2, '0')}:${match[2]}`;
+}
+
+function toDisplayTime(value: string) {
+  const [hours, minutes] = value.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  return `${String(hours % 12 || 12).padStart(2, '0')}:${String(minutes).padStart(2, '0')} ${period}`;
+}
+
+function serviceTimeDraft(value: string) {
+  const [start, end] = value.split(/\s+-\s+/);
+  return { start: toInputTime(start || ''), end: toInputTime(end || '') };
+}
 
 function settingsFromProfile(settings?: UserSettings): UserSettings {
   return {
+    ...defaultSettings,
+    ...settings,
     notificationPreferences: {
       ...defaultSettings.notificationPreferences,
       ...settings?.notificationPreferences,
@@ -42,14 +58,15 @@ function settingsFromProfile(settings?: UserSettings): UserSettings {
   };
 }
 
-function PreferenceToggle({ checked, onChange }: { checked: boolean; onChange: (checked: boolean) => void }) {
+function PreferenceToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (checked: boolean) => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 rounded-full transition-colors ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
+      className={`relative h-6 w-11 rounded-full transition-colors disabled:cursor-wait disabled:opacity-60 ${checked ? 'bg-blue-600' : 'bg-gray-300'}`}
     >
       <span className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? 'translate-x-6' : 'translate-x-1'}`} />
     </button>
@@ -57,31 +74,68 @@ function PreferenceToggle({ checked, onChange }: { checked: boolean; onChange: (
 }
 
 export default function CustomerSettings() {
-  const { user, profile, loading: authLoading } = useAuth();
+  const { user, profile, loading: authLoading, refreshAuthenticatedProfile } = useAuth();
   const navigate = useNavigate();
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
+  const [timeDraft, setTimeDraft] = useState(() => serviceTimeDraft(defaultSettings.preferredServiceTime));
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsLoadError, setSettingsLoadError] = useState(false);
+  const [settingsLoadAttempt, setSettingsLoadAttempt] = useState(0);
+  const [preferenceSaving, setPreferenceSaving] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [passwords, setPasswords] = useState({ current: '', next: '', confirm: '' });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const userId = user?.uid;
 
   useEffect(() => {
-    if (profile) setSettings(settingsFromProfile(profile.settings));
-  }, [profile]);
+    if (authLoading) return;
+    let active = true;
+    const loadSettings = async () => {
+      setSettingsLoading(true);
+      setSettingsLoadError(false);
+      setError('');
+      try {
+        if (!userId) throw new Error('You must be logged in to load settings.');
+        const freshProfile = await authService.getUserProfile(userId);
+        if (!freshProfile) throw new Error('Your customer profile could not be found.');
+        if (!active) return;
+        const savedSettings = settingsFromProfile(freshProfile.settings);
+        setSettings(savedSettings);
+        setTimeDraft(serviceTimeDraft(savedSettings.preferredServiceTime));
+      } catch (loadError) {
+        console.error(loadError);
+        if (active) {
+          setSettingsLoadError(true);
+          setError('Unable to load your settings. Please try again.');
+        }
+      } finally {
+        if (active) setSettingsLoading(false);
+      }
+    };
+    void loadSettings();
+    return () => { active = false; };
+  }, [authLoading, settingsLoadAttempt, userId]);
 
   const saveSettings = async (nextSettings: UserSettings) => {
     if (!user) return;
-    setSettings(nextSettings);
+    setPreferenceSaving(true);
     setError('');
     setMessage('');
     try {
       await authService.updateUserSettings(user.uid, nextSettings);
+      setSettings(nextSettings);
       setMessage('Settings updated successfully.');
+      void refreshAuthenticatedProfile().catch((refreshError) => {
+        console.error('Settings were saved, but the authenticated profile could not be refreshed:', refreshError);
+      });
     } catch (saveError) {
       console.error(saveError);
       setError('Unable to save your settings. Please try again.');
+    } finally {
+      setPreferenceSaving(false);
     }
   };
 
@@ -144,8 +198,16 @@ export default function CustomerSettings() {
     navigate('/login');
   };
 
-  if (authLoading || !profile) {
+  if (authLoading || settingsLoading) {
     return <div className="p-8 text-center text-gray-500">Loading your settings...</div>;
+  }
+  if (!profile || settingsLoadError) {
+    return (
+      <div className="mx-auto max-w-4xl rounded-xl border border-red-100 bg-red-50 p-6 text-center text-red-700">
+        <p>{error || 'Unable to load your settings.'}</p>
+        <Button type="button" variant="secondary" onClick={() => setSettingsLoadAttempt((attempt) => attempt + 1)} className="mt-4">Retry</Button>
+      </div>
+    );
   }
 
   return (
@@ -161,26 +223,42 @@ export default function CustomerSettings() {
 
       <SettingsCard title="NOTIFICATIONS" icon={<Bell size={18} />}>
         <SettingRow title="Service Updates" description="Updates about service requests and tickets.">
-          <PreferenceToggle checked={settings.notificationPreferences.serviceUpdates} onChange={(value) => updateNotification('serviceUpdates', value)} />
+          <PreferenceToggle checked={settings.notificationPreferences.serviceUpdates} disabled={preferenceSaving || settingsLoading} onChange={(value) => updateNotification('serviceUpdates', value)} />
         </SettingRow>
         <SettingRow title="AI Updates" description="Updates about your AI troubleshooting sessions.">
-          <PreferenceToggle checked={settings.notificationPreferences.aiUpdates} onChange={(value) => updateNotification('aiUpdates', value)} />
+          <PreferenceToggle checked={settings.notificationPreferences.aiUpdates} disabled={preferenceSaving || settingsLoading} onChange={(value) => updateNotification('aiUpdates', value)} />
         </SettingRow>
         <SettingRow title="Account & Security Alerts" description="Important account and security notifications.">
-          <PreferenceToggle checked={settings.notificationPreferences.accountSecurityAlerts} onChange={(value) => updateNotification('accountSecurityAlerts', value)} />
+          <PreferenceToggle checked={settings.notificationPreferences.accountSecurityAlerts} disabled={preferenceSaving || settingsLoading} onChange={(value) => updateNotification('accountSecurityAlerts', value)} />
         </SettingRow>
       </SettingsCard>
 
       <SettingsCard title="LANGUAGE & PREFERENCES">
         <SettingRow title="App Language" description="Language used throughout the application.">
-          <Select label="" name="appLanguage" aria-label="App Language" options={languageOptions} value={settings.appLanguage} onChange={(event) => void saveSettings({ ...settings, appLanguage: event.target.value })} className="min-w-36" />
+          <Select label="" name="appLanguage" aria-label="App Language" options={languageOptions} value={settings.appLanguage} disabled={preferenceSaving || settingsLoading} onChange={(event) => void saveSettings({ ...settings, appLanguage: event.target.value })} className="min-w-36" />
         </SettingRow>
         <SettingRow title="Preferred Service Time" description={settings.preferredServiceTime}>
-          <button type="button" aria-label="Change preferred service time" onClick={() => {
-            const index = serviceTimeOptions.findIndex((option) => option.value === settings.preferredServiceTime);
-            const next = serviceTimeOptions[(index + 1) % serviceTimeOptions.length].value;
-            void saveSettings({ ...settings, preferredServiceTime: next });
-          }} className="text-gray-500 hover:text-blue-600"><ArrowRight size={20} /></button>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs font-medium text-gray-500">
+              Start
+              <input type="time" aria-label="Preferred service start time" value={timeDraft.start} disabled={preferenceSaving || settingsLoading} onChange={(event) => setTimeDraft((current) => ({ ...current, start: event.target.value }))} className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700" />
+            </label>
+            <label className="text-xs font-medium text-gray-500">
+              End
+              <input type="time" aria-label="Preferred service end time" value={timeDraft.end} disabled={preferenceSaving || settingsLoading} onChange={(event) => setTimeDraft((current) => ({ ...current, end: event.target.value }))} className="mt-1 block rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700" />
+            </label>
+            <Button type="button" disabled={preferenceSaving || settingsLoading} isLoading={preferenceSaving} onClick={() => {
+              if (!timeDraft.start || !timeDraft.end || timeDraft.end <= timeDraft.start) {
+                setError('End time must be later than start time.');
+                setMessage('');
+                return;
+              }
+              void saveSettings({
+                ...settings,
+                preferredServiceTime: `${toDisplayTime(timeDraft.start)} - ${toDisplayTime(timeDraft.end)}`,
+              });
+            }}>Save</Button>
+          </div>
         </SettingRow>
       </SettingsCard>
 

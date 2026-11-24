@@ -37,6 +37,7 @@ import AdminFinalApprovals from './features/admin/pages/AdminFinalApprovals';
 import AdminApprovedTechnicians from './features/admin/pages/AdminApprovedTechnicians';
 import AdminCustomers from './features/admin/pages/AdminCustomers';
 import AdminSettings from './features/admin/pages/AdminSettings';
+import AdminNotifications from './features/admin/pages/AdminNotifications';
 
 function App() {
   return (
@@ -94,6 +95,7 @@ function App() {
               <Route path="final-approvals" element={<AdminFinalApprovals />} />
               <Route path="approved-technicians" element={<AdminApprovedTechnicians />} />
               <Route path="customers" element={<AdminCustomers />} />
+              <Route path="notifications" element={<AdminNotifications />} />
               <Route path="settings" element={<AdminSettings />} />
             </Route>
           </Route>
